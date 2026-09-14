@@ -1,0 +1,26 @@
+version: '3.8'
+
+# Usa el Oracle centralizado que levanta digitalfix-ms-login (no crea otro
+# contenedor de base de datos). Por eso primero hay que correr
+# `docker compose up -d` en digitalfix-ms-login (crea la red "digitalfix-net"
+# y el contenedor "oracle-db"); recien despues se puede levantar este servicio.
+networks:
+  digitalfix-net:
+    external: true
+    name: digitalfix-net
+
+services:
+  ms-workorders:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ms-workorders-service
+    ports:
+      # 8081 en el host porque digitalfix-ms-login ya ocupa el 8080.
+      - "8081:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:oracle:thin:@//oracle-db:1521/FREEPDB1
+      - SPRING_DATASOURCE_USERNAME=system
+      - SPRING_DATASOURCE_PASSWORD=system
+    networks:
+      - digitalfix-net

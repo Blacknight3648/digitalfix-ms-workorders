@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: digitalfix-ms-workorders
+
+  #1. Conexion a BD oracle (centralizada: el MISMO Oracle que usa ms-login,
+  #   ver docker-compose.yaml -> red compartida "digitalfix-net")
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  #2. Flyway: usa una tabla de historial propia (no la por defecto
+  #   flyway_schema_history) para que, al compartir el mismo usuario/schema de
+  #   Oracle que ms-login, cada microservicio versione sus migraciones por
+  #   separado y no se pisen los V1, V2, etc. entre servicios.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    table: flyway_schema_history_workorders
+    locations: classpath:db/migration
+
+#3. CORS: origenes desde los que el frontend Angular puede llamar a esta API
+#   (ver WebConfig). Variable CORS_ALLOWED_ORIGINS, por defecto http://localhost:4200.
+
+#4. Este microservicio NO valida JWT de Azure AD directamente: en la
+#   arquitectura del caso, esa validacion la hace ms-digitalfix-bff, que es el
+#   unico componente expuesto detras del API Gateway. Ver digitalfix-ms-login
+#   si mas adelante hay que agregarle su propia validacion de JWT.
