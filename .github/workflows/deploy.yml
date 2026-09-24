@@ -1,0 +1,32 @@
+name: Deploy a EC2
+
+# Se dispara con cada push a la rama "deploy".
+# Tambien se puede ejecutar manualmente desde la pestaña Actions de GitHub.
+on:
+  push:
+    branches:
+      - deploy
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Desplegar en EC2 por SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ secrets.EC2_DEPLOY_PATH }}"
+            git fetch origin deploy
+            git reset --hard origin/deploy
+            docker compose -f docker-compose.prod.yaml up -d --build
+            docker image prune -f

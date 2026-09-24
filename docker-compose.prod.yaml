@@ -1,0 +1,38 @@
+version: '3.8'
+
+# Compose de PRODUCCION para la instancia EC2 (Ubuntu).
+#
+# Usa el mismo Oracle centralizado que digitalfix-ms-login (red externa
+# "digitalfix-net"), igual que en desarrollo local. Por eso, en el EC2,
+# primero debe estar corriendo digitalfix-ms-login (crea la red y el
+# contenedor "oracle-db") antes de levantar este servicio.
+#
+# Las variables se leen desde un archivo ".env" que vive SOLO en el
+# servidor (no se versiona, ver .env.example).
+#
+# Uso en el EC2:
+#   docker compose -f docker-compose.prod.yaml up -d --build
+
+networks:
+  digitalfix-net:
+    external: true
+    name: digitalfix-net
+
+services:
+  ms-workorders:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: digitalfix-ms-workorders:latest
+    container_name: ms-workorders-service
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8081}:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - JAVA_OPTS=${JAVA_OPTS:-}
+    networks:
+      - digitalfix-net

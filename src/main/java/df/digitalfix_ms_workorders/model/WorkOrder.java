@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.entity;
+package df.digitalfix_ms_workorders.model;
 
 import df.digitalfix_ms_workorders.enums.WorkOrderStatus;
 import jakarta.persistence.*;

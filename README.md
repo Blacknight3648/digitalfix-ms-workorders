@@ -232,3 +232,92 @@ digitalfix-ms-workorders/
 ./mvnw clean package -DskipTests  # generar el jar sin ejecutar pruebas
 ./mvnw test                  # ejecutar las pruebas
 ```
+
+---
+
+## Despliegue en AWS EC2 (Ubuntu)
+
+El servicio se despliega con Docker Compose sobre una instancia EC2 Ubuntu ya
+existente, y se actualiza automaticamente via GitHub Actions con cada push a
+la rama `deploy`.
+
+### 1. Preparar la instancia EC2 (una sola vez)
+
+En la instancia Ubuntu (por SSH):
+
+```bash
+# Docker + plugin de compose
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Permite correr docker sin sudo (cierra sesion y vuelve a entrar despues)
+sudo usermod -aG docker $USER
+
+# Clonar el repo en la ruta que se usara para el despliegue
+git clone https://github.com/Blacknight3648/digitalfix-ms-workorders.git
+cd digitalfix-ms-workorders
+git checkout deploy
+
+# Variables de entorno reales del servidor (nunca se suben a git)
+cp .env.example .env
+nano .env   # completar SPRING_DATASOURCE_URL/USERNAME/PASSWORD, CORS_ALLOWED_ORIGINS, APP_PORT
+```
+
+> Este servicio depende de la red Docker `digitalfix-net` y el contenedor
+> `oracle-db` que crea `digitalfix-ms-login`. Ese proyecto debe estar
+> levantado primero en el mismo EC2 (o el host de Oracle en `.env` debe
+> apuntar a una base accesible desde la instancia).
+
+Primer levantamiento manual, para validar que todo funciona:
+
+```bash
+docker compose -f docker-compose.prod.yaml up -d --build
+```
+
+El servicio queda disponible en `http://<IP-publica-EC2>:<APP_PORT>` (por
+defecto `8081`).
+
+### 2. Abrir el puerto en el Security Group
+
+En la consola de AWS, en el Security Group asociado a la instancia, agregar
+una regla de entrada (Inbound rule) para el puerto definido en `APP_PORT`
+(TCP, `8081` por defecto), idealmente restringida al origen que realmente
+necesita llegar al servicio (por ejemplo, la IP del API Gateway o del BFF).
+
+### 3. Configurar GitHub Actions (despliegue automatico)
+
+El workflow [`​.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+se conecta por SSH al EC2 con cada push a `deploy` y corre
+`docker compose -f docker-compose.prod.yaml up -d --build`. No toca el
+archivo `.env` del servidor: los secretos de base de datos viven solo ahi.
+
+En GitHub: **Settings → Secrets and variables → Actions → New repository
+secret**, y crear:
+
+| Secret | Descripcion | Ejemplo |
+|---|---|---|
+| `EC2_HOST` | IP publica o DNS de la instancia | `54.210.xxx.xxx` |
+| `EC2_USERNAME` | Usuario SSH | `ubuntu` |
+| `EC2_SSH_KEY` | Contenido completo de la llave privada `.pem` usada para conectarse | `-----BEGIN RSA PRIVATE KEY-----...` |
+| `EC2_PORT` | Puerto SSH (opcional, por defecto 22) | `22` |
+| `EC2_DEPLOY_PATH` | Ruta absoluta del repo clonado en el EC2 | `/home/ubuntu/digitalfix-ms-workorders` |
+
+A partir de ahi, cada `git push origin deploy` reconstruye y reinicia el
+contenedor en EC2 automaticamente. También se puede disparar manualmente
+desde la pestaña **Actions** del repositorio (`workflow_dispatch`).
+
+### 4. Actualizaciones posteriores
+
+No se necesita hacer nada manual: basta con mergear/pushear a `deploy`. Para
+un despliegue manual (sin esperar al pipeline), en el EC2:
+
+```bash
+cd digitalfix-ms-workorders
+git pull origin deploy
+docker compose -f docker-compose.prod.yaml up -d --build
+```

@@ -3,7 +3,7 @@ package df.digitalfix_ms_workorders.service;
 import df.digitalfix_ms_workorders.dto.WorkOrderRequest;
 import df.digitalfix_ms_workorders.dto.WorkOrderResponse;
 import df.digitalfix_ms_workorders.dto.WorkOrderStatusRequest;
-import df.digitalfix_ms_workorders.entity.WorkOrder;
+import df.digitalfix_ms_workorders.model.WorkOrder;
 import df.digitalfix_ms_workorders.enums.WorkOrderStatus;
 import df.digitalfix_ms_workorders.repository.WorkOrderRepository;
 import lombok.RequiredArgsConstructor;

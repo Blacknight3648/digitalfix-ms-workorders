@@ -1,6 +1,6 @@
 package df.digitalfix_ms_workorders.dto;
 
-import df.digitalfix_ms_workorders.entity.WorkOrder;
+import df.digitalfix_ms_workorders.model.WorkOrder;
 import df.digitalfix_ms_workorders.enums.WorkOrderStatus;
 import lombok.*;
 
