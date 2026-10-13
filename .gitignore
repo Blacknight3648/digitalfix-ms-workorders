@@ -34,3 +34,4 @@ build/
 
 ###Variables de entorno###
 *.env
+/wallet
