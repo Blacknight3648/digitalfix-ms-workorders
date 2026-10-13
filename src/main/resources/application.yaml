@@ -4,8 +4,8 @@ spring:
 
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:oracle:thin:@clx44joct2djmlz9_high?TNS_ADMIN=C:/Users/va-alumno/Documents/DIGITAL-FIX/wallet}
-    username: ADMIN
-    password: Anastasia1110.
+    username:
+    password:
     driver-class-name: oracle.jdbc.OracleDriver
 
   jpa:
@@ -21,6 +21,3 @@ spring:
     baseline-version: 0
     table: flyway_schema_history_workorders
     locations: classpath:db/migration
-
-    username: ADMIN
-    password: Anastasia1110.
