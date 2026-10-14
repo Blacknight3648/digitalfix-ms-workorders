@@ -34,5 +34,8 @@ services:
       - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
       - JAVA_OPTS=${JAVA_OPTS:-}
+    volumes:
+      # Wallet de Oracle copiada a mano en el servidor (no se versiona)
+      - ./wallet:/app/wallet:ro
     networks:
       - digitalfix-net

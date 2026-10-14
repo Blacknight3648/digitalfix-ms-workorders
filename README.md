@@ -32,64 +32,117 @@ Este servicio implementa el CRUD de ordenes de trabajo, nada mas. Dos cosas qued
 
 - JDK 21
 - Maven (o usar el wrapper `mvnw` / `mvnw.cmd` incluido en el proyecto)
-- Una base de datos Oracle accesible
+- Acceso a la base **Oracle Autonomous Database** del proyecto: la **wallet** y las **credenciales** (las entrega el equipo, ver abajo)
 - Docker (opcional, para ejecutar el servicio en contenedor)
 
 ---
 
-## Base de datos centralizada
+## Secretos: que NO va en el repositorio
 
-Este servicio **no levanta su propio contenedor de Oracle**: usa el mismo Oracle que ya levanta `digitalfix-ms-login`, para que ambos microservicios (y los que se agreguen despues) compartan una sola base de datos en el entorno de desarrollo local, tal como lo pide el caso.
+> ⚠️ **Nunca subas al repositorio la wallet de Oracle ni el archivo `.env`.** Ambos estan en `.gitignore`.
+> Si por error quedan en un commit, avisa de inmediato al equipo: hay que **cambiar la contrasena de la BD y rotar la wallet** en OCI, porque borrar el archivo no lo saca del historial de git.
 
-Para evitar que las migraciones de Flyway de distintos microservicios se pisen entre si (ambos comparten el mismo usuario/schema de Oracle, `system`), cada servicio usa su propia tabla de historial:
+| Archivo / carpeta | Que contiene | Versionado |
+|---|---|---|
+| `wallet/` | Certificados y llaves privadas para conectarse a Oracle Autonomous | ❌ No |
+| `.env` | Usuario, contrasena y URL reales de la BD, puertos locales | ❌ No |
+| `.env.example` | Plantilla de `.env` **sin valores reales** | ✅ Si |
+| `src/main/resources/application.yaml` | Solo referencias `${VARIABLE}`, ninguna credencial | ✅ Si |
 
-- `digitalfix-ms-login` -> `flyway_schema_history` (la tabla por defecto)
-- `digitalfix-ms-workorders` -> `flyway_schema_history_workorders` (configurado en `application.yaml`)
+Las credenciales y la wallet se comparten **solo por un canal privado del equipo** (por ejemplo, un mensaje directo o una carpeta de Drive restringida), nunca por GitHub, issues ni capturas de pantalla.
 
 ---
 
-## Configuracion
+## Configuracion local (paso a paso)
 
-Variables de entorno leidas en [`src/main/resources/application.yaml`](src/main/resources/application.yaml):
+### 1. Wallet de Oracle
+
+La wallet es un `.zip` que se descarga desde la consola de OCI (**Autonomous Database → Database connection → Download wallet**) o que te comparte el equipo.
+
+1. Descomprime el `.zip` en una carpeta llamada **`wallet`** en la raiz del proyecto, de modo que quede asi:
+
+   ```text
+   digitalfix-ms-workorders/
+   ├── wallet/
+   │   ├── cwallet.sso
+   │   ├── ewallet.p12
+   │   ├── keystore.jks
+   │   ├── ojdbc.properties
+   │   ├── sqlnet.ora
+   │   ├── tnsnames.ora
+   │   └── truststore.jks
+   ├── .env
+   ├── pom.xml
+   └── src/
+   ```
+
+2. No hace falta editar ninguna ruta: la URL usa `TNS_ADMIN=./wallet`, una ruta **relativa** a la raiz del proyecto, asi que funciona igual en cualquier PC.
+
+> La ruta relativa se resuelve desde el directorio donde arranca la app. Ejecuta siempre desde la raiz del proyecto (`./mvnw spring-boot:run` o el boton *Run* del IDE con el proyecto abierto en esa carpeta).
+
+### 2. Archivo `.env`
+
+```bash
+cp .env.example .env          # Windows (cmd): copy .env.example .env
+```
+
+Abre `.env` y completa los valores reales:
 
 | Variable | Descripcion | Ejemplo |
 |---|---|---|
-| `SPRING_DATASOURCE_URL` | URL JDBC de la base de datos Oracle | `jdbc:oracle:thin:@//oracle-db:1521/FREEPDB1` |
-| `SPRING_DATASOURCE_USERNAME` | Usuario de la base de datos | `system` |
-| `SPRING_DATASOURCE_PASSWORD` | Contrasena de la base de datos | `system` |
-| `CORS_ALLOWED_ORIGINS` | Origen(es) permitidos para llamadas del navegador (separados por coma) | `http://localhost:4200` |
+| `SPRING_DATASOURCE_URL` | URL JDBC con el alias de `wallet/tnsnames.ora` | `jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet` |
+| `SPRING_DATASOURCE_USERNAME` | Usuario de la base de datos | `<usuario_bd>` |
+| `SPRING_DATASOURCE_PASSWORD` | Contrasena de la base de datos | `<contrasena_bd>` |
+| `CORS_ALLOWED_ORIGINS` | Origen(es) permitidos para el navegador, separados por coma | `http://localhost:4200` |
+| `SERVER_PORT` | Puerto local con `mvnw`/IDE (por defecto `8080`) | `8081` |
+| `APP_PORT` | Puerto publicado en el host por docker compose | `8081` |
+| `JAVA_OPTS` | Opciones de la JVM dentro del contenedor (opcional) | `-Xms256m -Xmx512m` |
+
+**No hace falta exportar variables a mano.** `application.yaml` importa el `.env` automaticamente al arrancar:
+
+```yaml
+spring:
+  config:
+    import: optional:file:.env[.properties]
+```
+
+Si una variable tambien existe en el sistema operativo o en el contenedor, esa tiene prioridad sobre el `.env`.
+
+### 3. Verificar que esta todo listo
+
+```bash
+git status        # wallet/ y .env NO deben aparecer en la lista
+```
 
 ---
 
 ## Quick start (desarrollo local)
 
-### Con Docker Compose (recomendado)
+### Sin Docker
 
-Este servicio depende de la red y el contenedor de Oracle que crea `digitalfix-ms-login`. El orden importa:
+Con la wallet y el `.env` listos (ver "Configuracion local"):
 
 ```bash
-# 1. Primero, en digitalfix-ms-login: crea la red "digitalfix-net" y levanta Oracle
-cd ../digitalfix-ms-login
-docker compose up -d
+./mvnw spring-boot:run        # Windows: mvnw.cmd spring-boot:run
+```
 
-# 2. Despues, en digitalfix-ms-workorders: se une a esa misma red
-cd ../digitalfix-ms-workorders
+El servicio queda disponible en `http://localhost:<SERVER_PORT>` (por ejemplo `http://localhost:8081`). Al iniciar, Flyway aplica las migraciones de `src/main/resources/db/migration`.
+
+> Si aparece `Port 8080 was already in use`, otro programa (XAMPP/Apache, `ms-login`, etc.) ocupa ese puerto: define `SERVER_PORT=8081` (u otro libre) en `.env`.
+
+### Con Docker Compose
+
+Requiere la red `digitalfix-net`, que crea `digitalfix-ms-login`:
+
+```bash
+# 1. Una sola vez: crea la red compartida (o levanta digitalfix-ms-login)
+docker network create digitalfix-net
+
+# 2. En digitalfix-ms-workorders
 docker compose up -d --build
 ```
 
-El servicio queda disponible en `http://localhost:8081` (el host usa el puerto 8081 porque `ms-login` ya ocupa el 8080; puertas adentro del contenedor sigue siendo el 8080).
-
-### Sin Docker
-
-```bash
-export SPRING_DATASOURCE_URL=jdbc:oracle:thin:@//localhost:1521/FREEPDB1
-export SPRING_DATASOURCE_USERNAME=system
-export SPRING_DATASOURCE_PASSWORD=system
-
-./mvnw spring-boot:run
-```
-
-El servicio queda disponible en `http://localhost:8080`. Al iniciar, Flyway aplica las migraciones ubicadas en `src/main/resources/db/migration`.
+Docker Compose lee el mismo `.env` para completar las variables y **monta la carpeta `wallet/` como volumen de solo lectura** (`./wallet:/app/wallet:ro`): la wallet nunca se copia dentro de la imagen. El servicio queda en `http://localhost:<APP_PORT>` (por defecto `8081`; dentro del contenedor sigue siendo el `8080`).
 
 ### Compilar y empaquetar
 
@@ -172,6 +225,8 @@ Los errores de validacion (`400`) y los recursos no encontrados (`404`) se devue
 
 ## Base de datos
 
+La base es compartida por varios microservicios. Para que las migraciones de Flyway no se pisen entre si, este servicio usa su propia tabla de historial: `flyway_schema_history_workorders` (configurado en `application.yaml`).
+
 La migracion inicial [`V1__crear_tabla_work_orders.sql`](src/main/resources/db/migration/V1__crear_tabla_work_orders.sql) crea la tabla `WORK_ORDERS`:
 
 | Columna | Tipo | Descripcion |
@@ -191,7 +246,9 @@ Incluye un indice `IDX_WORK_ORDERS_ESTADO` sobre `ESTADO` para acelerar el filtr
 
 El `Dockerfile` es identico en estructura al de `digitalfix-ms-login`: build multi-stage con Maven (`maven:3.9.8-eclipse-temurin-21-alpine`) y runtime liviano (`eclipse-temurin:21-jre-alpine`) corriendo con un usuario no root, expuesto en el puerto `8080`.
 
-El `docker-compose.yaml` de este servicio **no define su propio Oracle**: se une, como red externa, a `digitalfix-net`, la red que crea el `docker-compose.yaml` de `digitalfix-ms-login`. Por eso ese proyecto debe levantarse primero (ver "Quick start").
+El `Dockerfile` **no copia la wallet ni el `.env`** a la imagen. Ambos compose (`docker-compose.yaml` y `docker-compose.prod.yaml`) toman las credenciales del `.env` y montan `./wallet` en `/app/wallet` como volumen de solo lectura. Asi la imagen se puede construir y compartir sin exponer secretos.
+
+El servicio se une, como red externa, a `digitalfix-net` (la crea `digitalfix-ms-login`, o a mano con `docker network create digitalfix-net`).
 
 ---
 
@@ -209,7 +266,7 @@ digitalfix-ms-workorders/
     │   │   ├── config/       # CORS (WebConfig)
     │   │   ├── controller/   # Endpoints REST del CRUD
     │   │   ├── dto/          # Objetos de transferencia (request/response/error)
-    │   │   ├── entity/       # Entidad JPA WorkOrder
+    │   │   ├── model/        # Entidades JPA (WorkOrder, OrdenServicio, ProveedorServicio)
     │   │   ├── enums/        # WorkOrderStatus
     │   │   ├── exception/    # Manejo global de excepciones
     │   │   ├── repository/   # Repositorio JPA
@@ -266,12 +323,24 @@ git checkout deploy
 # Variables de entorno reales del servidor (nunca se suben a git)
 cp .env.example .env
 nano .env   # completar SPRING_DATASOURCE_URL/USERNAME/PASSWORD, CORS_ALLOWED_ORIGINS, APP_PORT
+chmod 600 .env
 ```
 
-> Este servicio depende de la red Docker `digitalfix-net` y el contenedor
-> `oracle-db` que crea `digitalfix-ms-login`. Ese proyecto debe estar
-> levantado primero en el mismo EC2 (o el host de Oracle en `.env` debe
-> apuntar a una base accesible desde la instancia).
+Subir la wallet al servidor **desde tu PC** (nunca por git), y protegerla:
+
+```bash
+# En tu PC, desde la raiz del proyecto
+scp -i <tu-llave>.pem -r wallet ubuntu@<IP-publica-EC2>:~/digitalfix-ms-workorders/
+
+# En el EC2
+chmod 700 ~/digitalfix-ms-workorders/wallet
+chmod 644 ~/digitalfix-ms-workorders/wallet/*   # el contenedor corre con un usuario no root y debe poder leerla
+```
+
+> `git reset --hard` del pipeline **no borra** `wallet/` ni `.env` porque estan en `.gitignore` (git no toca archivos ignorados).
+
+> Este servicio depende de la red Docker `digitalfix-net` que crea
+> `digitalfix-ms-login` (o `docker network create digitalfix-net`).
 
 Primer levantamiento manual, para validar que todo funciona:
 
@@ -294,7 +363,7 @@ necesita llegar al servicio (por ejemplo, la IP del API Gateway o del BFF).
 El workflow [`​.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
 se conecta por SSH al EC2 con cada push a `deploy` y corre
 `docker compose -f docker-compose.prod.yaml up -d --build`. No toca el
-archivo `.env` del servidor: los secretos de base de datos viven solo ahi.
+archivo `.env` ni la carpeta `wallet/` del servidor: los secretos de base de datos viven solo ahi.
 
 En GitHub: **Settings → Secrets and variables → Actions → New repository
 secret**, y crear:

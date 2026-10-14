@@ -1,11 +1,12 @@
 package df.digitalfix_ms_workorders.model;
 
-import jakarta.persistence.Entity;
+import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
 
-@Entity (name = "ORDEN_SERVICIO")
+@Entity
+@Table(name = "ORDEN_SERVICIO")
 @Getter
 @Setter
 @AllArgsConstructor
@@ -13,6 +14,8 @@ import java.time.LocalDateTime;
 @Builder
 public class OrdenServicio {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id_orden_servicio;
     private String observacion;
     private LocalDateTime fecha_inicio_servicio;

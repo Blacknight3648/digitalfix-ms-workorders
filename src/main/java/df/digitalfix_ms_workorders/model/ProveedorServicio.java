@@ -1,9 +1,10 @@
 package df.digitalfix_ms_workorders.model;
 
-import jakarta.persistence.Entity;
+import jakarta.persistence.*;
 import lombok.*;
 
-@Entity(name = "PROVEEDOR_SERVICIO")
+@Entity
+@Table(name = "PROVEEDOR_SERVICIO")
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
@@ -11,6 +12,8 @@ import lombok.*;
 @Setter
 public class ProveedorServicio {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id_proveedor_Servicio;
     private Integer run_proveedor; //Hay que crear un validador con cálculo para evitar inyecciones y sanitizar los datos
     private String dv_proveedor; //Hay que limpiar la validación con cálculo de dv y formato estricto de entrada (Sólo aceptará los números de los dv y k en un formato específico)
