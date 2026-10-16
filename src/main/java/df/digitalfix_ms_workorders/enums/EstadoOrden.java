@@ -1,9 +1,9 @@
 package df.digitalfix_ms_workorders.enums;
 
-// Mismos estados que WorkOrderStatus en el frontend
+// Mismos valores que WorkOrderStatus en el frontend
 // (digitalfix-frontend/src/app/model/work-order.model.ts). El flujo es lineal
 // salvo CANCELADA, que puede ocurrir desde CREADA.
-public enum WorkOrderStatus {
+public enum EstadoOrden {
     CREADA,
     ASIGNADA,
     EN_DESPLAZAMIENTO,

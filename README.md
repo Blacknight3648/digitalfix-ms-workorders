@@ -1,6 +1,6 @@
 # DigitalFix - ms-workorders
 
-Microservicio de gestion de ordenes de trabajo del sistema **DigitalFix**, una plataforma de mantencion electrica. Expone un CRUD basico sobre las ordenes de trabajo (creacion, consulta, edicion, cambio de estado y eliminacion), construido con **Spring Boot** y **Spring Data JPA** sobre una base de datos **Oracle**.
+Microservicio de gestion de ordenes de trabajo del sistema **DigitalFix**, una plataforma de mantencion electrica. Expone la gestion de ordenes de trabajo (creacion, consulta, edicion, cambio de estado, servicios y repuestos utilizados, eliminacion), construido con **Spring Boot** y **Spring Data JPA** sobre una base de datos **Oracle**.
 
 Corresponde al microservicio de dominio `ms-digitalfix-workorders` del caso, dentro del flujo `Angular (MSAL) -> AWS API Gateway -> ms-digitalfix-bff -> microservicios de dominio`.
 
@@ -12,7 +12,6 @@ Este servicio implementa el CRUD de ordenes de trabajo, nada mas. Dos cosas qued
 
 - **Validacion de JWT de Azure AD**: en la arquitectura objetivo, el unico componente expuesto directamente detras del API Gateway es `ms-digitalfix-bff`, que es quien valida el token antes de reenviar la peticion a los microservicios de dominio. Por eso este servicio no incluye Spring Security ni valida el JWT por su cuenta (a diferencia de `digitalfix-ms-login`, que si lo hace porque fue construido para probarse de forma independiente).
 - **Timeline / auditoria de eventos**: el historial de eventos de una orden (quien la creo, asigno, etc.) le corresponde a `ms-digitalfix-audit`, que lo construye consumiendo eventos de Kafka. Este servicio no persiste ni expone ese historial.
-- **Reglas de negocio del flujo de estados**: el caso exige que no se pueda pasar a `EN_EJECUCION` sin haber asignado un tecnico antes. Ese control todavia no esta implementado en el servidor (ver nota en `WorkOrderService.updateStatus`); por ahora el cambio de estado es libre.
 
 ---
 
@@ -160,66 +159,97 @@ Docker Compose lee el mismo `.env` para completar las variables y **monta la car
 
 ## Endpoints
 
-Todos bajo el prefijo `/api/workorders`. Ninguno requiere autenticacion por ahora (ver "Alcance actual").
+Todos bajo el prefijo `/api/ordenes-trabajo`. Ninguno requiere autenticacion por ahora (ver "Alcance actual").
 
 | Metodo | Ruta | Descripcion |
 |---|---|---|
-| POST | `/api/workorders` | Crea una orden de trabajo. El estado inicial siempre es `CREADA`. |
-| GET | `/api/workorders` | Lista todas las ordenes. Admite el filtro opcional `?estado=` (ej. `?estado=ASIGNADA`). |
-| GET | `/api/workorders/{id}` | Obtiene una orden por id. `404` si no existe. |
-| PUT | `/api/workorders/{id}` | Edita cliente, servicio y/o tecnico de una orden existente. |
-| PUT | `/api/workorders/{id}/status` | Cambia el estado de la orden. |
-| DELETE | `/api/workorders/{id}` | Elimina una orden. `204` sin cuerpo. |
+| POST | `/api/ordenes-trabajo` | Crea una OT para un cliente existente. El estado inicial siempre es `CREADA`. |
+| GET | `/api/ordenes-trabajo` | Lista las OT. Admite el filtro opcional `?estado=` (ej. `?estado=ASIGNADA`). |
+| GET | `/api/ordenes-trabajo/{id}` | Obtiene una OT por id. `404` si no existe. |
+| PUT | `/api/ordenes-trabajo/{id}` | Edita las observaciones de la OT. |
+| PUT | `/api/ordenes-trabajo/{id}/estado` | Cambia el estado de la OT (ver reglas abajo). |
+| POST | `/api/ordenes-trabajo/{id}/servicios` | Agrega un servicio (mano de obra) a la OT. |
+| PUT | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}/tecnico` | Asigna el tecnico que ejecuta ese servicio. |
+| DELETE | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}` | Quita un servicio de la OT. |
+| POST | `/api/ordenes-trabajo/{id}/repuestos` | Registra un repuesto utilizado (si ya existe el mismo repuesto y proveedor, suma la cantidad). |
+| DELETE | `/api/ordenes-trabajo/{id}/repuestos/{idDetalle}` | Quita un repuesto de la OT. |
+| DELETE | `/api/ordenes-trabajo/{id}` | Elimina una OT. Solo permitido en estado `CREADA`; `204` sin cuerpo. |
 
-### Estados posibles
+### Estados y reglas
 
 `CREADA`, `ASIGNADA`, `EN_DESPLAZAMIENTO`, `EN_EJECUCION`, `CERRADA`, `CANCELADA` (mismos valores que `WorkOrderStatus` en el frontend).
 
-### POST /api/workorders
+- Flujo lineal `CREADA -> ASIGNADA -> EN_DESPLAZAMIENTO -> EN_EJECUCION -> CERRADA`; `CANCELADA` solo desde `CREADA`.
+- No se puede pasar a `ASIGNADA` (y por lo tanto tampoco a `EN_EJECUCION`) sin al menos un servicio con tecnico asignado.
+- `CERRADA` y `CANCELADA` son terminales: la OT ya no admite cambios. Al cerrar se registra `fechaCierre`.
+- Las reglas viven en el modelo ([`OrdenTrabajo`](src/main/java/df/digitalfix_ms_workorders/model/ordenTrabajo/OrdenTrabajo.java) y [`PoliticaTransicionEstado`](src/main/java/df/digitalfix_ms_workorders/model/common/PoliticaTransicionEstado.java)).
 
-Cuerpo de la peticion ([`WorkOrderRequest`](src/main/java/df/digitalfix_ms_workorders/dto/WorkOrderRequest.java)):
+### POST /api/ordenes-trabajo
+
+Cuerpo de la peticion ([`OrdenTrabajoRequest`](src/main/java/df/digitalfix_ms_workorders/dto/OrdenTrabajoRequest.java)); `servicios` es opcional:
 
 ```json
 {
-  "cliente": "Comercial Rojas Ltda.",
-  "servicio": "Revision tablero electrico",
-  "tecnico": "P. Munoz"
+  "idCliente": 1,
+  "observaciones": "Cliente reporta cortes intermitentes",
+  "servicios": [
+    { "idServicio": 5, "idTecnico": 7, "descripcionManoObra": "Revision tablero electrico", "precioManoObra": 25000.00 }
+  ]
 }
 ```
 
-`cliente` y `servicio` son obligatorios; `tecnico` es opcional. Respuesta `201 Created` con la orden creada ([`WorkOrderResponse`](src/main/java/df/digitalfix_ms_workorders/dto/WorkOrderResponse.java)):
+Respuesta `201 Created` ([`OrdenTrabajoResponse`](src/main/java/df/digitalfix_ms_workorders/dto/OrdenTrabajoResponse.java)):
 
 ```json
 {
-  "id": "1",
-  "cliente": "Comercial Rojas Ltda.",
-  "servicio": "Revision tablero electrico",
-  "tecnico": "P. Munoz",
+  "idOrdenTrabajo": 1,
+  "cliente": { "idCliente": 1, "rut": "12.345.678-5", "nombreCompleto": "Ana Rojas" },
   "estado": "CREADA",
-  "fechaCreacion": "2026-09-14T05:28:10.000807"
+  "observaciones": "Cliente reporta cortes intermitentes",
+  "fechaIngreso": "2026-10-15T10:00:00",
+  "fechaActualizacionEstado": "2026-10-15T10:00:00",
+  "fechaCierre": null,
+  "servicios": [
+    { "idDetalle": 1, "idServicio": 5, "idTecnico": 7, "descripcionManoObra": "Revision tablero electrico", "precioManoObra": 25000.00 }
+  ],
+  "repuestos": [],
+  "totalManoObra": 25000.00
 }
 ```
 
-Nota: `id` se devuelve como texto (no como numero) a proposito, para calzar directo con el modelo `WorkOrder` ya usado en el frontend Angular.
-
-### PUT /api/workorders/{id}/status
+### Otros cuerpos
 
 ```json
+// PUT /{id}/estado
 { "estado": "ASIGNADA" }
+
+// POST /{id}/repuestos
+{ "idRepuesto": 12, "idProveedor": 3, "cantidad": 2 }
+
+// PUT /{id}/servicios/{idDetalle}/tecnico
+{ "idTecnico": 7 }
 ```
 
 ### Errores
 
-Los errores de validacion (`400`) y los recursos no encontrados (`404`) se devuelven con el mismo formato ([`ErrorResponse`](src/main/java/df/digitalfix_ms_workorders/dto/ErrorResponse.java)), manejado por [`GlobalExceptionHandler`](src/main/java/df/digitalfix_ms_workorders/exception/GlobalExceptionHandler.java):
+Todos los errores usan el mismo formato ([`ErrorResponse`](src/main/java/df/digitalfix_ms_workorders/dto/ErrorResponse.java)), manejado por [`GlobalExceptionHandler`](src/main/java/df/digitalfix_ms_workorders/exception/GlobalExceptionHandler.java):
+
+| Codigo | Caso |
+|---|---|
+| `400` | Validacion de datos, JSON mal formado o valor no valido (ej. RUT con digito verificador incorrecto). |
+| `404` | La OT, el cliente o el proveedor no existen. |
+| `409` | Regla de negocio (transicion de estado no permitida, OT cerrada), modificacion concurrente o restriccion de integridad. |
 
 ```json
 {
-  "status": 400,
-  "message": "Error de validacion de los datos",
-  "timestamp": "2026-09-14T10:00:00",
-  "errors": ["El cliente es obligatorio"]
+  "status": 409,
+  "message": "Transicion de estado no permitida: ASIGNADA -> CERRADA",
+  "timestamp": "2026-10-15T10:00:00",
+  "errors": []
 }
 ```
+
+Los errores de base de datos se responden con un mensaje generico para no exponer detalles internos.
 
 ---
 
@@ -227,18 +257,21 @@ Los errores de validacion (`400`) y los recursos no encontrados (`404`) se devue
 
 La base es compartida por varios microservicios. Para que las migraciones de Flyway no se pisen entre si, este servicio usa su propia tabla de historial: `flyway_schema_history_workorders` (configurado en `application.yaml`).
 
-La migracion inicial [`V1__crear_tabla_work_orders.sql`](src/main/resources/db/migration/V1__crear_tabla_work_orders.sql) crea la tabla `WORK_ORDERS`:
+- [`V1__crear_tabla_work_orders.sql`](src/main/resources/db/migration/V1__crear_tabla_work_orders.sql) creaba la tabla original `WORK_ORDERS`.
+- [`V2__eliminar_tabla_work_orders.sql`](src/main/resources/db/migration/V2__eliminar_tabla_work_orders.sql) la elimina: fue reemplazada por el modelo normalizado (3FN).
 
-| Columna | Tipo | Descripcion |
-|---|---|---|
-| `ID` | `NUMBER(19,0)` | Identidad autogenerada, llave primaria. |
-| `CLIENTE` | `VARCHAR2(150)` | Cliente que solicita el servicio. |
-| `SERVICIO` | `VARCHAR2(200)` | Descripcion del servicio tecnico. |
-| `TECNICO` | `VARCHAR2(150)` | Tecnico asignado (puede ser nulo). |
-| `ESTADO` | `VARCHAR2(30)` | Estado actual de la orden. |
-| `FECHA_CREACION` | `TIMESTAMP` | Fecha y hora de creacion. |
+Tablas actuales (creadas por Hibernate con `ddl-auto: update`):
 
-Incluye un indice `IDX_WORK_ORDERS_ESTADO` sobre `ESTADO` para acelerar el filtro por estado.
+| Tabla | Contenido |
+|---|---|
+| `CLIENTE` | Clientes; RUT unico validado con digito verificador. |
+| `PROVEEDOR` | Proveedores de repuestos; RUT unico. |
+| `ORDEN_TRABAJO` | Cabecera de la OT (cliente, estado, fechas, observaciones). |
+| `DETALLE_OT_SERVICIO` | Servicios realizados en la OT, con precio cobrado y tecnico. |
+| `DETALLE_OT_REPUESTO` | Repuestos utilizados en la OT, con proveedor y cantidad. |
+| `ORDEN_SERVICIO` / `DETALLE_ORDEN_SERVICIO` | Ordenes de servicio solicitadas por el cliente. |
+
+Todas las tablas principales incluyen `FECHA_CREACION`, `FECHA_ACTUALIZACION` y `VERSION` (bloqueo optimista).
 
 ---
 
@@ -264,13 +297,13 @@ digitalfix-ms-workorders/
     ├── main/
     │   ├── java/df/digitalfix_ms_workorders/
     │   │   ├── config/       # CORS (WebConfig)
-    │   │   ├── controller/   # Endpoints REST del CRUD
+    │   │   ├── controller/   # Endpoints REST (OrdenTrabajoController)
     │   │   ├── dto/          # Objetos de transferencia (request/response/error)
-    │   │   ├── model/        # Entidades JPA (WorkOrder, OrdenServicio, ProveedorServicio)
-    │   │   ├── enums/        # WorkOrderStatus
+    │   │   ├── model/        # Entidades JPA (OrdenTrabajo, OrdenServicio, Cliente, Proveedor, comunes)
+    │   │   ├── enums/        # EstadoOrden
     │   │   ├── exception/    # Manejo global de excepciones
-    │   │   ├── repository/   # Repositorio JPA
-    │   │   ├── service/      # Logica de negocio del CRUD
+    │   │   ├── repository/   # Repositorios JPA
+    │   │   ├── service/      # Casos de uso de la OT
     │   │   └── DigitalfixMsWorkordersApplication.java
     │   └── resources/
     │       ├── application.yaml
