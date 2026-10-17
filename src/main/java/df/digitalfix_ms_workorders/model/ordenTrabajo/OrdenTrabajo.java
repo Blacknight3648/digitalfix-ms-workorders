@@ -7,6 +7,7 @@ import df.digitalfix_ms_workorders.model.common.EntidadAuditable;
 import df.digitalfix_ms_workorders.model.common.OperacionNoPermitidaException;
 import df.digitalfix_ms_workorders.model.common.PoliticaTransicionEstado;
 import df.digitalfix_ms_workorders.model.common.SanitizadorTexto;
+import df.digitalfix_ms_workorders.model.cuadrilla.Cuadrilla;
 import df.digitalfix_ms_workorders.model.proveedores.Proveedor;
 import jakarta.persistence.*;
 import jakarta.validation.Valid;
@@ -47,6 +48,10 @@ public class OrdenTrabajo extends EntidadAuditable {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "ID_CLIENTE", nullable = false, foreignKey = @ForeignKey(name = "FK_OT_CLIENTE"))
     private Cliente cliente;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ID_CUADRILLA", foreignKey = @ForeignKey(name = "FK_OT_CUADRILLA"))
+    private Cuadrilla cuadrilla;
 
     @NotNull
     @Column(name = "FECHA_INGRESO_OT", nullable = false, updatable = false)
@@ -99,17 +104,34 @@ public class OrdenTrabajo extends EntidadAuditable {
         this.observaciones = SanitizadorTexto.textoMultilinea(observaciones);
     }
 
-    /** Regla del caso: no se puede asignar (ni avanzar a ejecución) sin un técnico asignado. */
+    /** Regla del caso: no se puede asignar (ni avanzar a ejecución) sin un técnico o cuadrilla asignada. */
     public void cambiarEstado(EstadoOrden nuevoEstado) {
         PoliticaTransicionEstado.validar(this.estado, nuevoEstado);
         if (nuevoEstado == EstadoOrden.ASIGNADA && !tieneTecnicoAsignado()) {
-            throw new OperacionNoPermitidaException("No se puede asignar la orden sin un técnico en al menos un servicio");
+            throw new OperacionNoPermitidaException("No se puede asignar la orden sin un técnico en al menos un servicio o una cuadrilla asignada");
         }
         this.estado = nuevoEstado;
         this.fechaActualizacionEstado = LocalDateTime.now();
         if (nuevoEstado == EstadoOrden.CERRADA) {
             this.fechaCierre = this.fechaActualizacionEstado;
         }
+        if (PoliticaTransicionEstado.esTerminal(nuevoEstado) && this.cuadrilla != null) {
+            this.cuadrilla.liberar();
+        }
+    }
+
+    /**
+     * Asignación de cuadrilla de terreno: grupo organizado que se desplaza y ejecuta en conjunto.
+     * Avanza el estado de la OT a ASIGNADA y marca la cuadrilla como EN_TERRENO.
+     */
+    public void asignarCuadrilla(Cuadrilla cuadrilla) {
+        verificarEditable();
+        PoliticaTransicionEstado.validar(this.estado, EstadoOrden.ASIGNADA);
+        Objects.requireNonNull(cuadrilla, "La cuadrilla es obligatoria");
+        cuadrilla.asignarATerreno();
+        this.cuadrilla = cuadrilla;
+        this.estado = EstadoOrden.ASIGNADA;
+        this.fechaActualizacionEstado = LocalDateTime.now();
     }
 
     public DetalleOtServicio agregarServicio(Long idServicio, Long idTecnico,
@@ -171,7 +193,7 @@ public class OrdenTrabajo extends EntidadAuditable {
     }
 
     private boolean tieneTecnicoAsignado() {
-        return detallesServicio.stream().anyMatch(d -> d.getIdTecnico() != null);
+        return this.cuadrilla != null || detallesServicio.stream().anyMatch(d -> d.getIdTecnico() != null);
     }
 
     private DetalleOtServicio buscarDetalleServicio(Long idDetalleServicio) {

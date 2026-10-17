@@ -1,6 +1,7 @@
 package df.digitalfix_ms_workorders.controller;
 
 import df.digitalfix_ms_workorders.dto.CambioEstadoRequest;
+import df.digitalfix_ms_workorders.dto.Cuadrilla.AsignarCuadrillaRequest;
 import df.digitalfix_ms_workorders.dto.OrdenServicio.DetalleServicioRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.ActualizarOrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
@@ -75,6 +76,15 @@ public class OrdenTrabajoController {
             @PathVariable @Positive Long id, @PathVariable @Positive Long idDetalle,
             @Valid @RequestBody AsignarTecnicoRequest request) {
         return ResponseEntity.ok(service.asignarTecnico(id, idDetalle, request));
+    }
+
+    @PutMapping("/{id}/cuadrilla")
+    @Operation(summary = "Asignar cuadrilla de terreno a la orden de trabajo",
+            description = "Coordina el despacho de una cuadrilla con bloqueo pesimista (ACID) y avanza el estado a ASIGNADA.")
+    public ResponseEntity<OrdenTrabajoResponse> asignarCuadrilla(
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody AsignarCuadrillaRequest request) {
+        return ResponseEntity.ok(service.asignarCuadrilla(id, request));
     }
 
     @DeleteMapping("/{id}/servicios/{idDetalle}")

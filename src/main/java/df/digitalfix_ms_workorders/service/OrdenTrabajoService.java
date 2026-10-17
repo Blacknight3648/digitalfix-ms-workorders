@@ -1,6 +1,7 @@
 package df.digitalfix_ms_workorders.service;
 
 import df.digitalfix_ms_workorders.dto.*;
+import df.digitalfix_ms_workorders.dto.Cuadrilla.AsignarCuadrillaRequest;
 import df.digitalfix_ms_workorders.dto.OrdenServicio.DetalleServicioRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.ActualizarOrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
@@ -10,9 +11,11 @@ import df.digitalfix_ms_workorders.dto.Tecnico.AsignarTecnicoRequest;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;
 import df.digitalfix_ms_workorders.model.common.OperacionNoPermitidaException;
+import df.digitalfix_ms_workorders.model.cuadrilla.Cuadrilla;
 import df.digitalfix_ms_workorders.model.ordenTrabajo.OrdenTrabajo;
 import df.digitalfix_ms_workorders.model.proveedores.Proveedor;
 import df.digitalfix_ms_workorders.repository.ClienteRepository;
+import df.digitalfix_ms_workorders.repository.CuadrillaRepository;
 import df.digitalfix_ms_workorders.repository.OrdenTrabajoRepository;
 import df.digitalfix_ms_workorders.repository.ProveedorRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +37,7 @@ public class OrdenTrabajoService {
     private final OrdenTrabajoRepository ordenTrabajoRepository;
     private final ClienteRepository clienteRepository;
     private final ProveedorRepository proveedorRepository;
+    private final CuadrillaRepository cuadrillaRepository;
 
     @Transactional
     public OrdenTrabajoResponse crear(OrdenTrabajoRequest request) {
@@ -91,6 +95,19 @@ public class OrdenTrabajoService {
     public OrdenTrabajoResponse asignarTecnico(Long id, Long idDetalleServicio, AsignarTecnicoRequest request) {
         OrdenTrabajo orden = obtener(id);
         orden.asignarTecnico(idDetalleServicio, request.idTecnico());
+        return guardar(orden);
+    }
+
+    /**
+     * Coordina y despacha una cuadrilla de terreno con bloqueo pesimista (ACID - Aislamiento).
+     * Evita que dos supervisores asignen la misma cuadrilla a dos órdenes distintas en concurrencia.
+     */
+    @Transactional
+    public OrdenTrabajoResponse asignarCuadrilla(Long id, AsignarCuadrillaRequest request) {
+        OrdenTrabajo orden = obtener(id);
+        Cuadrilla cuadrilla = cuadrillaRepository.findByIdConBloqueo(request.idCuadrilla())
+                .orElseThrow(() -> noEncontrado("No existe una cuadrilla con id " + request.idCuadrilla()));
+        orden.asignarCuadrilla(cuadrilla);
         return guardar(orden);
     }
 
