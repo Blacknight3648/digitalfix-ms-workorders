@@ -1,425 +1,255 @@
-# DigitalFix - ms-workorders
+# Documento de Diseno y Especificacion Tecnica: Microservicio de Ordenes de Trabajo (ms-digitalfix-workorders)
 
-Microservicio de gestion de ordenes de trabajo del sistema **DigitalFix**, una plataforma de mantencion electrica. Expone la gestion de ordenes de trabajo (creacion, consulta, edicion, cambio de estado, servicios y repuestos utilizados, eliminacion), construido con **Spring Boot** y **Spring Data JPA** sobre una base de datos **Oracle**.
+## 1. Informacion del Proyecto y Control de Versiones
 
-Corresponde al microservicio de dominio `ms-digitalfix-workorders` del caso, dentro del flujo `Angular (MSAL) -> AWS API Gateway -> ms-digitalfix-bff -> microservicios de dominio`.
+### 1.1 Ficha Tecnica
+* Nombre del Proyecto: DigitalFix - Plataforma para Ordenes de Trabajo de Mantencion Electrica
+* Componente: ms-digitalfix-workorders (Microservicio de Gestion Operativa y Ordenes de Trabajo)
+* Version del Documento: 1.1.0
+* Estado: En Desarrollo / Calidad de Entrega Semestral
+* Clasificacion: Confidencial - Uso Academico y Corporativo
 
----
-
-## Alcance actual
-
-Este servicio implementa el CRUD de ordenes de trabajo, nada mas. Dos cosas quedan fuera a proposito, para las siguientes etapas del caso:
-
-- **Validacion de JWT de Azure AD**: en la arquitectura objetivo, el unico componente expuesto directamente detras del API Gateway es `ms-digitalfix-bff`, que es quien valida el token antes de reenviar la peticion a los microservicios de dominio. Por eso este servicio no incluye Spring Security ni valida el JWT por su cuenta (a diferencia de `digitalfix-ms-login`, que si lo hace porque fue construido para probarse de forma independiente).
-- **Timeline / auditoria de eventos**: el historial de eventos de una orden (quien la creo, asigno, etc.) le corresponde a `ms-digitalfix-audit`, que lo construye consumiendo eventos de Kafka. Este servicio no persiste ni expone ese historial.
-
----
-
-## Stack tecnologico
-
-- **Framework**: Spring Boot (spring-boot-starter-parent 4.0.8)
-- **Lenguaje**: Java 21
-- **Persistencia**: Spring Data JPA + Oracle Database (driver `ojdbc17`)
-- **Migraciones de base de datos**: Flyway (`flyway-database-oracle`)
-- **Documentacion de API**: springdoc-openapi (Swagger UI)
-- **Utilitarios**: Lombok
-- **Build**: Maven (con Maven Wrapper)
+### 1.2 Control de Cambios
+| Version | Fecha | Autor | Descripcion del Cambio |
+|---|---|---|---|
+| 1.0.0 | 2026-10-13 | Equipo de Desarrollo DigitalFix | Definicion inicial de persistencia JPA y CRUD base de ordenes de trabajo. |
+| 1.1.0 | 2026-10-17 | Equipo de Desarrollo DigitalFix | Estandarizacion de endpoints al idioma espanol, incorporacion de los modulos de Clientes, Proveedores, Ordenes de Servicio, Cuadrillas de Terreno bajo principios SOLID/ACID y documentacion OpenAPI/Swagger. |
 
 ---
 
-## Requisitos
+## 2. Declaracion de Alcance del Proyecto (Project Scope Statement)
 
-- JDK 21
-- Maven (o usar el wrapper `mvnw` / `mvnw.cmd` incluido en el proyecto)
-- Acceso a la base **Oracle Autonomous Database** del proyecto: la **wallet** y las **credenciales** (las entrega el equipo, ver abajo)
-- Docker (opcional, para ejecutar el servicio en contenedor)
+### 2.1 Proposito y Justificacion
+El sistema DigitalFix responde a la necesidad de estandarizar la coordinacion y ejecucion de servicios de mantenimiento electrico y field service para una red de 20 empresas contratistas. El microservicio `ms-digitalfix-workorders` constituye el nucleo transaccional de dominio responsable de:
+1. Administrar el registro y ciclo de vida de los clientes demandantes de servicio.
+2. Mantener el maestro de proveedores de repuestos e insumos tecnicos.
+3. Gestionar las Ordenes de Servicio (solicitudes contractuales de los clientes con tarifas asociadas).
+4. Coordinar y despachar Cuadrillas de Terreno para ejecucion de faenas conjuntas bajo condiciones de concurrencia segura.
+5. Gestionar las Ordenes de Trabajo (OT) tecnicas, controlando la asignacion de mano de obra y el consumo de repuestos en terreno.
+
+### 2.2 Limites del Alcance (In Scope / Out of Scope)
+* **Dentro del Alcance (In Scope):**
+  * Persistencia relacional en base de datos Oracle Autonomous Database bajo esquema normalizado (Tercera Forma Normal - 3FN).
+  * Validacion de integridad de datos chilenos (RUT con algoritmo modulo 11, sanitizacion de entradas y telefonos en formato E.164).
+  * Maquina de estados finitos para Ordenes de Servicio y Ordenes de Trabajo.
+  * Coordinacion y despacho atómico de Cuadrillas de Terreno con bloqueo pesimista a nivel de base de datos.
+  * Exposicion de contratos REST en idioma espanol y documentacion viva mediante OpenAPI (Swagger UI).
+* **Fuera del Alcance (Out of Scope - Delegado a otros componentes):**
+  * Validacion perimetral del token JWT de Azure AD: Esta responsabilidad recae en el componente API Gateway y en el microservicio `ms-digitalfix-bff`, el cual valida la identidad y roles antes del reenvio a los servicios de dominio.
+  * Consumo analitico y auditoria de eventos: La emision y agregacion de eventos para reporteria y timeline es delegada a los microservicios `ms-digitalfix-report` y `ms-digitalfix-audit` mediante la infraestructura Kafka.
+  * Notificaciones en tiempo real al cliente y despacho al tecnico: Delegado a `ms-digitalfix-notify` a traves de colas RabbitMQ.
 
 ---
 
-## Secretos: que NO va en el repositorio
+## 3. Arquitectura del Sistema y Principios de Ingenieria
 
-> ⚠️ **Nunca subas al repositorio la wallet de Oracle ni el archivo `.env`.** Ambos estan en `.gitignore`.
-> Si por error quedan en un commit, avisa de inmediato al equipo: hay que **cambiar la contrasena de la BD y rotar la wallet** en OCI, porque borrar el archivo no lo saca del historial de git.
+### 3.1 Pila Tecnologica (Tech Stack)
+* Lenguaje de Programacion: Java 21 (LTS)
+* Framework Base: Spring Boot 4.0.8 (Spring Data JPA, Spring Web MVC, Spring Validation)
+* Motor de Base de Datos: Oracle Autonomous Database (Oracle 23ai Enterprise)
+* Driver de Conexion: Oracle JDBC Driver (ojdbc17 version 23.9.0.25.07) con soporte PKI/TNS
+* Gestion de Migraciones: Flyway Migration (flyway-database-oracle version 11.14.1)
+* Documentacion de API: springdoc-openapi-starter-webmvc-ui version 3.1.0 (Swagger 3)
+* Herramienta de Construccion: Apache Maven 3.9+ (con Maven Wrapper integrado)
+* Contenedorizacion: Docker / Docker Compose con imagenes multi-etapa
 
-| Archivo / carpeta | Que contiene | Versionado |
+### 3.2 Implementacion de Principios SOLID
+* **Single Responsibility Principle (SRP):** Cada clase de dominio encapsula exclusivamente su regla de negocio. `Cuadrilla` vela por la disponibilidad y quorum del equipo; `OrdenTrabajo` rige el ciclo de vida de terreno; `Rut` valida el modulo 11 de forma inmutable; `SanitizadorTexto` limpia marcados sin alterar la logica de persistencia.
+* **Open/Closed Principle (OCP):** La politica de transicion de estados (`PoliticaTransicionEstado`) desacopla las reglas de negocio de los controladores, permitiendo incorporar nuevas transiciones o restricciones sin modificar el codigo cliente.
+* **Liskov Substitution Principle (LSP):** Todas las entidades heredan de `EntidadAuditable`, manteniendo el contrato uniforme de control de concurrencia mediante `@Version` y estampas temporales auditables.
+* **Interface Segregation Principle (ISP):** Los repositorios de datos exponen contratos granulares adaptados a las consultas especificas por cliente o estado, evitando exponer metodos genericos sobrecargados.
+* **Dependency Inversion Principle (DIP):** Los servicios de aplicacion dependen exclusivamente de abstracciones de repositorio inyectadas a traves del constructor, facilitando el desacoplamiento y la elaboracion de pruebas unitarias.
+
+### 3.3 Garantias Transaccionales ACID
+* **Atomicidad (Atomicity):** Cada caso de uso de actualizacion o asignacion se encuentra delimitado con la anotacion `@Transactional`. Ante excepciones de regla de negocio o violacion de restricciones, Spring revierte la totalidad de la transaccion (Rollback).
+* **Consistencia (Consistency):** Se hace cumplir tanto en capa logica (Agregados DDD que protegen invariantes) como en capa fisica mediante restricciones relacionales de base de datos (`FOREIGN KEY`, `CHECK`, `UNIQUE constraints`).
+* **Aislamiento (Isolation):** 
+  * Se implementa bloqueo pesimista (`LockModeType.PESSIMISTIC_WRITE` -> `SELECT ... FOR UPDATE`) en `CuadrillaRepository` para evitar condiciones de carrera cuando dos supervisores intentan despachar la misma cuadrilla de manera simultanea.
+  * Se implementa bloqueo optimista (`@Version`) en todas las entidades principales para evitar escrituras concurrentes que puedan sobreescribir datos obsoletos (`OptimisticLockingFailureException`).
+* **Durabilidad (Durability):** La ejecucion de `saveAndFlush()` asegura la persistencia en disco y en los Redo Logs de Oracle Database tras la confirmacion de la transaccion.
+
+---
+
+## 4. Gestion de Configuracion y Seguridad de Secretos
+
+### 4.1 Politica de Proteccion de Credenciales
+De acuerdo con las politicas de seguridad del proyecto, ningun secreto, certificado o contrasena de acceso debe quedar versionado en el repositorio Git. Los siguientes artefactos estan formalmente excluidos a traves de `.gitignore`:
+* Directorio `wallet/`: Contiene los certificados privados, llaves SSL y el archivo `tnsnames.ora`.
+* Archivo `.env`: Contiene las credenciales reales de la base de datos y puertos locales.
+
+### 4.2 Matriz de Variables de Entorno
+| Variable de Entorno | Descripcion Tecnica | Valor por Defecto / Formato |
 |---|---|---|
-| `wallet/` | Certificados y llaves privadas para conectarse a Oracle Autonomous | ❌ No |
-| `.env` | Usuario, contrasena y URL reales de la BD, puertos locales | ❌ No |
-| `.env.example` | Plantilla de `.env` **sin valores reales** | ✅ Si |
-| `src/main/resources/application.yaml` | Solo referencias `${VARIABLE}`, ninguna credencial | ✅ Si |
+| `SPRING_DATASOURCE_URL` | Cadena de conexion JDBC Oracle con alias TNS y ruta de wallet | `jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet` |
+| `SPRING_DATASOURCE_USERNAME` | Usuario administrador de esquema de la base de datos | `ADMIN` |
+| `SPRING_DATASOURCE_PASSWORD` | Contrasena del usuario de base de datos | Credencial privada de entorno |
+| `SERVER_PORT` | Puerto HTTP para ejecucion local | `8081` |
+| `APP_PORT` | Puerto expuesto en el host mediante Docker Compose | `8081` |
+| `CORS_ALLOWED_ORIGINS` | Lista blanca de origenes permitidos para navegadores | `http://localhost:4200` |
 
-Las credenciales y la wallet se comparten **solo por un canal privado del equipo** (por ejemplo, un mensaje directo o una carpeta de Drive restringida), nunca por GitHub, issues ni capturas de pantalla.
-
----
-
-## Configuracion local (paso a paso)
-
-### 1. Wallet de Oracle
-
-La wallet es un `.zip` que se descarga desde la consola de OCI (**Autonomous Database → Database connection → Download wallet**) o que te comparte el equipo.
-
-1. Descomprime el `.zip` en una carpeta llamada **`wallet`** en la raiz del proyecto, de modo que quede asi:
-
-   ```text
-   digitalfix-ms-workorders/
-   ├── wallet/
-   │   ├── cwallet.sso
-   │   ├── ewallet.p12
-   │   ├── keystore.jks
-   │   ├── ojdbc.properties
-   │   ├── sqlnet.ora
-   │   ├── tnsnames.ora
-   │   └── truststore.jks
-   ├── .env
-   ├── pom.xml
-   └── src/
+### 4.3 Procedimiento de Configuracion Local
+1. Obtener el archivo comprimido de la Wallet oficial entregado por el administrador de base de datos (por ejemplo, `Wallet_CLX44JOCT2DJMLZ9.zip`).
+2. Descomprimir el contenido en el directorio `./wallet` en la raiz del microservicio. Debe contener:
+   * `cwallet.sso`
+   * `ewallet.p12`
+   * `keystore.jks`
+   * `ojdbc.properties`
+   * `sqlnet.ora`
+   * `tnsnames.ora`
+   * `truststore.jks`
+3. Crear el archivo `.env` a partir de la plantilla:
+   ```bash
+   cp .env.example .env
    ```
-
-2. No hace falta editar ninguna ruta: la URL usa `TNS_ADMIN=./wallet`, una ruta **relativa** a la raiz del proyecto, asi que funciona igual en cualquier PC.
-
-> La ruta relativa se resuelve desde el directorio donde arranca la app. Ejecuta siempre desde la raiz del proyecto (`./mvnw spring-boot:run` o el boton *Run* del IDE con el proyecto abierto en esa carpeta).
-
-### 2. Archivo `.env`
-
-```bash
-cp .env.example .env          # Windows (cmd): copy .env.example .env
-```
-
-Abre `.env` y completa los valores reales:
-
-| Variable | Descripcion | Ejemplo |
-|---|---|---|
-| `SPRING_DATASOURCE_URL` | URL JDBC con el alias de `wallet/tnsnames.ora` | `jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet` |
-| `SPRING_DATASOURCE_USERNAME` | Usuario de la base de datos | `<usuario_bd>` |
-| `SPRING_DATASOURCE_PASSWORD` | Contrasena de la base de datos | `<contrasena_bd>` |
-| `CORS_ALLOWED_ORIGINS` | Origen(es) permitidos para el navegador, separados por coma | `http://localhost:4200` |
-| `SERVER_PORT` | Puerto local con `mvnw`/IDE (por defecto `8080`) | `8081` |
-| `APP_PORT` | Puerto publicado en el host por docker compose | `8081` |
-| `JAVA_OPTS` | Opciones de la JVM dentro del contenedor (opcional) | `-Xms256m -Xmx512m` |
-
-**No hace falta exportar variables a mano.** `application.yaml` importa el `.env` automaticamente al arrancar:
-
-```yaml
-spring:
-  config:
-    import: optional:file:.env[.properties]
-```
-
-Si una variable tambien existe en el sistema operativo o en el contenedor, esa tiene prioridad sobre el `.env`.
-
-### 3. Verificar que esta todo listo
-
-```bash
-git status        # wallet/ y .env NO deben aparecer en la lista
-```
+4. Completar los valores de conexion en `.env`. La aplicacion cargara este archivo automaticamente al arrancar mediante la directiva `spring.config.import: optional:file:.env[.properties]`.
 
 ---
 
-## Quick start (desarrollo local)
+## 5. Especificacion de Interfaces de Servicio (API REST)
 
-### Sin Docker
+Todos los endpoints estan configurados en idioma espanol bajo el prefijo `/api/`.
 
-Con la wallet y el `.env` listos (ver "Configuracion local"):
+### 5.1 Documentacion Interactiva OpenAPI (Swagger)
+Una vez iniciada la aplicacion, la documentacion tecnica interactiva y el esquema OpenAPI se encuentran disponibles en:
+* Interfaz de Usuario Swagger: `http://localhost:8081/swagger-ui.html`
+* Especificacion OpenAPI (JSON): `http://localhost:8081/v3/api-docs`
 
+### 5.2 Modulo de Clientes (`/api/clientes`)
+| Metodo | Ruta | Descripcion | Codigo Exito |
+|---|---|---|---|
+| POST | `/api/clientes` | Registra un nuevo cliente validando RUT chileno (modulo 11). | 201 Created |
+| GET | `/api/clientes` | Obtiene la nomina completa de clientes. | 200 OK |
+| GET | `/api/clientes/{id}` | Retorna el detalle del cliente especificado por identificador. | 200 OK |
+| PUT | `/api/clientes/{id}` | Actualiza datos de contacto y nombres del cliente. | 200 OK |
+| DELETE | `/api/clientes/{id}` | Elimina el registro de un cliente si no posee historial. | 204 No Content |
+
+### 5.3 Modulo de Proveedores (`/api/proveedores`)
+| Metodo | Ruta | Descripcion | Codigo Exito |
+|---|---|---|---|
+| POST | `/api/proveedores` | Registra un nuevo proveedor de repuestos validando RUT de empresa. | 201 Created |
+| GET | `/api/proveedores` | Obtiene el catalogo de proveedores registrados. | 200 OK |
+| GET | `/api/proveedores/{id}` | Retorna informacion comercial y de contacto del proveedor. | 200 OK |
+| PUT | `/api/proveedores/{id}` | Modifica la razon social, giro o datos de contacto. | 200 OK |
+| DELETE | `/api/proveedores/{id}` | Elimina un proveedor si no tiene repuestos asociados a OTs. | 204 No Content |
+
+### 5.4 Modulo de Cuadrillas de Terreno (`/api/cuadrillas`)
+| Metodo | Ruta | Descripcion | Codigo Exito |
+|---|---|---|---|
+| POST | `/api/cuadrillas` | Registra una cuadrilla asignando su tecnico lider y miembros. | 201 Created |
+| GET | `/api/cuadrillas` | Lista cuadrillas. Admite filtro por estado operativo (`?estado=DISPONIBLE`). | 200 OK |
+| GET | `/api/cuadrillas/{id}` | Consulta el detalle y nomina de integrantes de la cuadrilla. | 200 OK |
+| PUT | `/api/cuadrillas/{id}` | Actualiza datos de la cuadrilla (no permite desactivar si esta en terreno). | 200 OK |
+| POST | `/api/cuadrillas/{id}/miembros/{idTecnico}` | Agrega un tecnico de apoyo al equipo. | 200 OK |
+| DELETE | `/api/cuadrillas/{id}/miembros/{idTecnico}` | Remueve un trabajador (restringido para el tecnico lider). | 200 OK |
+| DELETE | `/api/cuadrillas/{id}` | Elimina la cuadrilla (solo si no esta en terreno). | 204 No Content |
+
+### 5.5 Modulo de Ordenes de Servicio (`/api/ordenes-servicio`)
+| Metodo | Ruta | Descripcion | Codigo Exito |
+|---|---|---|---|
+| POST | `/api/ordenes-servicio` | Genera una orden de servicio comercial vinculada a un cliente. | 201 Created |
+| GET | `/api/ordenes-servicio` | Lista ordenes de servicio. Permite filtros `?estado=` e `?idCliente=`. | 200 OK |
+| GET | `/api/ordenes-servicio/{id}` | Detalle de la orden de servicio con desglose de lineas y monto total. | 200 OK |
+| PUT | `/api/ordenes-servicio/{id}` | Modifica las observaciones de la orden (mientras sea editable). | 200 OK |
+| PUT | `/api/ordenes-servicio/{id}/estado` | Cambia el estado de la orden respetando la matriz de transiciones. | 200 OK |
+| PUT | `/api/ordenes-servicio/{id}/tecnico` | Asigna el tecnico responsable y transiciona el estado a `ASIGNADA`. | 200 OK |
+| POST | `/api/ordenes-servicio/{id}/detalles` | Agrega un servicio contratado con cantidad y precio unitario pactado. | 201 Created |
+| DELETE | `/api/ordenes-servicio/{id}/detalles/{idDetalle}` | Remueve una linea de servicio de la orden. | 200 OK |
+| DELETE | `/api/ordenes-servicio/{id}` | Elimina la orden de servicio (restringido a estado `CREADA`). | 204 No Content |
+
+### 5.6 Modulo de Ordenes de Trabajo (`/api/ordenes-trabajo`)
+| Metodo | Ruta | Descripcion | Codigo Exito |
+|---|---|---|---|
+| POST | `/api/ordenes-trabajo` | Crea una Orden de Trabajo en terreno (estado inicial `CREADA`). | 201 Created |
+| GET | `/api/ordenes-trabajo` | Lista ordenes de trabajo con soporte de filtros `?estado=` e `?idCliente=`. | 200 OK |
+| GET | `/api/ordenes-trabajo/{id}` | Consulta de orden con servicios, mano de obra, cuadrilla y repuestos. | 200 OK |
+| PUT | `/api/ordenes-trabajo/{id}` | Actualiza observaciones tecnicas de la OT. | 200 OK |
+| PUT | `/api/ordenes-trabajo/{id}/estado` | Actualiza el estado operativo de terreno (requiere tecnico/cuadrilla para `ASIGNADA`). | 200 OK |
+| PUT | `/api/ordenes-trabajo/{id}/cuadrilla` | Asigna cuadrilla mediante bloqueo pesimista y avanza a `ASIGNADA`. | 200 OK |
+| POST | `/api/ordenes-trabajo/{id}/servicios` | Agrega una labor tecnica detallando precio de mano de obra y tecnico. | 201 Created |
+| PUT | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}/tecnico` | Asigna o reasigna un tecnico a un item especifico de mano de obra. | 200 OK |
+| DELETE | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}` | Quita un item de mano de obra de la orden. | 200 OK |
+| POST | `/api/ordenes-trabajo/{id}/repuestos` | Registra repuestos utilizados asociando proveedor y cantidad consumida. | 201 Created |
+| DELETE | `/api/ordenes-trabajo/{id}/repuestos/{idDetalle}` | Elimina un registro de repuesto de la OT. | 200 OK |
+| DELETE | `/api/ordenes-trabajo/{id}` | Elimina la OT (solo habilitado si permanece en estado `CREADA`). | 204 No Content |
+
+---
+
+## 6. Matriz de Estados y Reglas de Negocio
+
+### 6.1 Ciclo de Vida de la Orden de Trabajo
+1. `CREADA`: Estado inicial al registrar la solicitud. Unicamente en este estado la orden puede eliminarse fisicamente de la base de datos.
+2. `ASIGNADA`: Requiere contar obligatoriamente con una cuadrilla asignada o un tecnico asociado a los servicios tecnicos.
+3. `EN_DESPLAZAMIENTO`: La cuadrilla o tecnico se traslada fisicamente hacia las dependencias del cliente.
+4. `EN_EJECUCION`: El trabajo electrico se esta ejecutando en terreno. No se puede ingresar a este estado sin previa asignacion.
+5. `CERRADA`: Estado terminal de finalizacion exitosa. Se estampa la fecha de cierre y se libera la cuadrilla asignada a estado `DISPONIBLE`.
+6. `CANCELADA`: Estado terminal de anulacion. Puede invocarse desde estados previos y libera los recursos asociados.
+
+### 6.2 Matriz de Transiciones Permitidas
+| Estado Origen | CREADA | ASIGNADA | EN_DESPLAZAMIENTO | EN_EJECUCION | CERRADA | CANCELADA |
+|---|---|---|---|---|---|---|
+| **CREADA** | No | Si (con tecnico/cuadrilla) | No | No | No | Si |
+| **ASIGNADA** | No | No | Si | Si | No | Si |
+| **EN_DESPLAZAMIENTO** | No | No | No | Si | No | Si |
+| **EN_EJECUCION** | No | No | No | No | Si | Si |
+| **CERRADA** | No | No | No | No | No | No |
+| **CANCELADA** | No | No | No | No | No | No |
+
+---
+
+## 7. Esquema de Base de Datos y Persistencia
+
+La persistencia se gestiona en Oracle Database mediante Hibernate y Flyway. Cada microservicio del ecosistema DigitalFix mantiene una tabla de control independiente para migraciones; este servicio utiliza `flyway_schema_history_workorders`.
+
+### 7.1 Modelo de Entidades Principales
+| Tabla Relacional | Entidad JPA | Proposito en el Negocio |
+|---|---|---|
+| `CLIENTE` | `Cliente` | Datos de identificacion, RUN validado, contacto y direccion del cliente. |
+| `PROVEEDOR` | `Proveedor` | Identificacion comercial, RUT de empresa y contacto de distribuidores de repuestos. |
+| `CUADRILLA` | `Cuadrilla` | Agrupacion operativa de trabajadores de terreno, lider tecnico y estado de disponibilidad. |
+| `CUADRILLA_MIEMBRO` | Coleccion `@ElementCollection` | Relacion de tecnicos asignados a cada cuadrilla de terreno. |
+| `ORDEN_SERVICIO` | `OrdenServicio` | Solicitud contractual y valorizacion de servicios para el cliente. |
+| `DETALLE_ORDEN_SERVICIO` | `DetalleOrdenServicio` | Desglose de servicios, cantidades y precios unitarios. |
+| `ORDEN_TRABAJO` | `OrdenTrabajo` | Ejecucion tecnica de terreno, estado, cuadrilla asignada y observaciones. |
+| `DETALLE_OT_SERVICIO` | `DetalleOtServicio` | Desglose de actividades tecnicas, mano de obra y tecnico asignado. |
+| `DETALLE_OT_REPUESTO` | `DetalleOtRepuesto` | Registro de materiales y repuestos utilizados vinculados a su proveedor. |
+
+---
+
+## 8. Guia de Operacion y Despliegue
+
+### 8.1 Ejecucion Local sin Contenedores
+Requisitos: JDK 21 instalado, Maven Wrapper y Wallet configurada.
 ```bash
-./mvnw spring-boot:run        # Windows: mvnw.cmd spring-boot:run
+# Ejecucion directa de la aplicacion
+./mvnw spring-boot:run
+
+# En sistemas operativos Windows:
+mvnw.cmd spring-boot:run
 ```
 
-El servicio queda disponible en `http://localhost:<SERVER_PORT>` (por ejemplo `http://localhost:8081`). Al iniciar, Flyway aplica las migraciones de `src/main/resources/db/migration`.
-
-> Si aparece `Port 8080 was already in use`, otro programa (XAMPP/Apache, `ms-login`, etc.) ocupa ese puerto: define `SERVER_PORT=8081` (u otro libre) en `.env`.
-
-### Con Docker Compose
-
-Requiere la red `digitalfix-net`, que crea `digitalfix-ms-login`:
-
+### 8.2 Compilacion y Verificacion de Calidad
 ```bash
-# 1. Una sola vez: crea la red compartida (o levanta digitalfix-ms-login)
+# Compilacion y ejecucion de pruebas de verificacion
+./mvnw clean test
+
+# Generacion del paquete ejecutable JAR
+./mvnw clean package -DskipTests
+```
+
+### 8.3 Ejecucion con Docker y Docker Compose
+El microservicio incluye definicion de contenedores multi-etapa asegurando que las imagenes no contengan secretos embebidos:
+```bash
+# 1. Asegurar la existencia de la red interna compartida del ecosistema
 docker network create digitalfix-net
 
-# 2. En digitalfix-ms-workorders
+# 2. Construir y levantar el contenedor en modo detach
 docker compose up -d --build
 ```
-
-Docker Compose lee el mismo `.env` para completar las variables y **monta la carpeta `wallet/` como volumen de solo lectura** (`./wallet:/app/wallet:ro`): la wallet nunca se copia dentro de la imagen. El servicio queda en `http://localhost:<APP_PORT>` (por defecto `8081`; dentro del contenedor sigue siendo el `8080`).
-
-### Compilar y empaquetar
-
-```bash
-./mvnw clean package
-```
-
-### Ejecutar pruebas
-
-```bash
-./mvnw test
-```
-
----
-
-## Endpoints
-
-Todos bajo el prefijo `/api/ordenes-trabajo`. Ninguno requiere autenticacion por ahora (ver "Alcance actual").
-
-| Metodo | Ruta | Descripcion |
-|---|---|---|
-| POST | `/api/ordenes-trabajo` | Crea una OT para un cliente existente. El estado inicial siempre es `CREADA`. |
-| GET | `/api/ordenes-trabajo` | Lista las OT. Admite el filtro opcional `?estado=` (ej. `?estado=ASIGNADA`). |
-| GET | `/api/ordenes-trabajo/{id}` | Obtiene una OT por id. `404` si no existe. |
-| PUT | `/api/ordenes-trabajo/{id}` | Edita las observaciones de la OT. |
-| PUT | `/api/ordenes-trabajo/{id}/estado` | Cambia el estado de la OT (ver reglas abajo). |
-| POST | `/api/ordenes-trabajo/{id}/servicios` | Agrega un servicio (mano de obra) a la OT. |
-| PUT | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}/tecnico` | Asigna el tecnico que ejecuta ese servicio. |
-| DELETE | `/api/ordenes-trabajo/{id}/servicios/{idDetalle}` | Quita un servicio de la OT. |
-| POST | `/api/ordenes-trabajo/{id}/repuestos` | Registra un repuesto utilizado (si ya existe el mismo repuesto y proveedor, suma la cantidad). |
-| DELETE | `/api/ordenes-trabajo/{id}/repuestos/{idDetalle}` | Quita un repuesto de la OT. |
-| DELETE | `/api/ordenes-trabajo/{id}` | Elimina una OT. Solo permitido en estado `CREADA`; `204` sin cuerpo. |
-
-### Estados y reglas
-
-`CREADA`, `ASIGNADA`, `EN_DESPLAZAMIENTO`, `EN_EJECUCION`, `CERRADA`, `CANCELADA` (mismos valores que `WorkOrderStatus` en el frontend).
-
-- Flujo lineal `CREADA -> ASIGNADA -> EN_DESPLAZAMIENTO -> EN_EJECUCION -> CERRADA`; `CANCELADA` solo desde `CREADA`.
-- No se puede pasar a `ASIGNADA` (y por lo tanto tampoco a `EN_EJECUCION`) sin al menos un servicio con tecnico asignado.
-- `CERRADA` y `CANCELADA` son terminales: la OT ya no admite cambios. Al cerrar se registra `fechaCierre`.
-- Las reglas viven en el modelo ([`OrdenTrabajo`](src/main/java/df/digitalfix_ms_workorders/model/ordenTrabajo/OrdenTrabajo.java) y [`PoliticaTransicionEstado`](src/main/java/df/digitalfix_ms_workorders/model/common/PoliticaTransicionEstado.java)).
-
-### POST /api/ordenes-trabajo
-
-Cuerpo de la peticion ([`OrdenTrabajoRequest`](src/main/java/df/digitalfix_ms_workorders/dto/OrdenTrabajoRequest.java)); `servicios` es opcional:
-
-```json
-{
-  "idCliente": 1,
-  "observaciones": "Cliente reporta cortes intermitentes",
-  "servicios": [
-    { "idServicio": 5, "idTecnico": 7, "descripcionManoObra": "Revision tablero electrico", "precioManoObra": 25000.00 }
-  ]
-}
-```
-
-Respuesta `201 Created` ([`OrdenTrabajoResponse`](src/main/java/df/digitalfix_ms_workorders/dto/OrdenTrabajoResponse.java)):
-
-```json
-{
-  "idOrdenTrabajo": 1,
-  "cliente": { "idCliente": 1, "rut": "12.345.678-5", "nombreCompleto": "Ana Rojas" },
-  "estado": "CREADA",
-  "observaciones": "Cliente reporta cortes intermitentes",
-  "fechaIngreso": "2026-10-15T10:00:00",
-  "fechaActualizacionEstado": "2026-10-15T10:00:00",
-  "fechaCierre": null,
-  "servicios": [
-    { "idDetalle": 1, "idServicio": 5, "idTecnico": 7, "descripcionManoObra": "Revision tablero electrico", "precioManoObra": 25000.00 }
-  ],
-  "repuestos": [],
-  "totalManoObra": 25000.00
-}
-```
-
-### Otros cuerpos
-
-```json
-// PUT /{id}/estado
-{ "estado": "ASIGNADA" }
-
-// POST /{id}/repuestos
-{ "idRepuesto": 12, "idProveedor": 3, "cantidad": 2 }
-
-// PUT /{id}/servicios/{idDetalle}/tecnico
-{ "idTecnico": 7 }
-```
-
-### Errores
-
-Todos los errores usan el mismo formato ([`ErrorResponse`](src/main/java/df/digitalfix_ms_workorders/dto/ErrorResponse.java)), manejado por [`GlobalExceptionHandler`](src/main/java/df/digitalfix_ms_workorders/exception/GlobalExceptionHandler.java):
-
-| Codigo | Caso |
-|---|---|
-| `400` | Validacion de datos, JSON mal formado o valor no valido (ej. RUT con digito verificador incorrecto). |
-| `404` | La OT, el cliente o el proveedor no existen. |
-| `409` | Regla de negocio (transicion de estado no permitida, OT cerrada), modificacion concurrente o restriccion de integridad. |
-
-```json
-{
-  "status": 409,
-  "message": "Transicion de estado no permitida: ASIGNADA -> CERRADA",
-  "timestamp": "2026-10-15T10:00:00",
-  "errors": []
-}
-```
-
-Los errores de base de datos se responden con un mensaje generico para no exponer detalles internos.
-
----
-
-## Base de datos
-
-La base es compartida por varios microservicios. Para que las migraciones de Flyway no se pisen entre si, este servicio usa su propia tabla de historial: `flyway_schema_history_workorders` (configurado en `application.yaml`).
-
-- [`V1__crear_tabla_work_orders.sql`](src/main/resources/db/migration/V1__crear_tabla_work_orders.sql) creaba la tabla original `WORK_ORDERS`.
-- [`V2__eliminar_tabla_work_orders.sql`](src/main/resources/db/migration/V2__eliminar_tabla_work_orders.sql) la elimina: fue reemplazada por el modelo normalizado (3FN).
-
-Tablas actuales (creadas por Hibernate con `ddl-auto: update`):
-
-| Tabla | Contenido |
-|---|---|
-| `CLIENTE` | Clientes; RUT unico validado con digito verificador. |
-| `PROVEEDOR` | Proveedores de repuestos; RUT unico. |
-| `ORDEN_TRABAJO` | Cabecera de la OT (cliente, estado, fechas, observaciones). |
-| `DETALLE_OT_SERVICIO` | Servicios realizados en la OT, con precio cobrado y tecnico. |
-| `DETALLE_OT_REPUESTO` | Repuestos utilizados en la OT, con proveedor y cantidad. |
-| `ORDEN_SERVICIO` / `DETALLE_ORDEN_SERVICIO` | Ordenes de servicio solicitadas por el cliente. |
-
-Todas las tablas principales incluyen `FECHA_CREACION`, `FECHA_ACTUALIZACION` y `VERSION` (bloqueo optimista).
-
----
-
-## Dockerizacion
-
-El `Dockerfile` es identico en estructura al de `digitalfix-ms-login`: build multi-stage con Maven (`maven:3.9.8-eclipse-temurin-21-alpine`) y runtime liviano (`eclipse-temurin:21-jre-alpine`) corriendo con un usuario no root, expuesto en el puerto `8080`.
-
-El `Dockerfile` **no copia la wallet ni el `.env`** a la imagen. Ambos compose (`docker-compose.yaml` y `docker-compose.prod.yaml`) toman las credenciales del `.env` y montan `./wallet` en `/app/wallet` como volumen de solo lectura. Asi la imagen se puede construir y compartir sin exponer secretos.
-
-El servicio se une, como red externa, a `digitalfix-net` (la crea `digitalfix-ms-login`, o a mano con `docker network create digitalfix-net`).
-
----
-
-## Estructura del proyecto
-
-```text
-digitalfix-ms-workorders/
-├── Dockerfile
-├── docker-compose.yaml
-├── pom.xml
-├── mvnw / mvnw.cmd
-└── src/
-    ├── main/
-    │   ├── java/df/digitalfix_ms_workorders/
-    │   │   ├── config/       # CORS (WebConfig)
-    │   │   ├── controller/   # Endpoints REST (OrdenTrabajoController)
-    │   │   ├── dto/          # Objetos de transferencia (request/response/error)
-    │   │   ├── model/        # Entidades JPA (OrdenTrabajo, OrdenServicio, Cliente, Proveedor, comunes)
-    │   │   ├── enums/        # EstadoOrden
-    │   │   ├── exception/    # Manejo global de excepciones
-    │   │   ├── repository/   # Repositorios JPA
-    │   │   ├── service/      # Casos de uso de la OT
-    │   │   └── DigitalfixMsWorkordersApplication.java
-    │   └── resources/
-    │       ├── application.yaml
-    │       └── db/migration/ # Scripts de Flyway
-    └── test/
-        └── java/df/digitalfix_ms_workorders/
-```
-
----
-
-## Comandos disponibles
-
-```bash
-./mvnw spring-boot:run       # ejecutar el servicio en modo desarrollo
-./mvnw clean package         # compilar y generar el jar (con pruebas)
-./mvnw clean package -DskipTests  # generar el jar sin ejecutar pruebas
-./mvnw test                  # ejecutar las pruebas
-```
-
----
-
-## Despliegue en AWS EC2 (Ubuntu)
-
-El servicio se despliega con Docker Compose sobre una instancia EC2 Ubuntu ya
-existente, y se actualiza automaticamente via GitHub Actions con cada push a
-la rama `deploy`.
-
-### 1. Preparar la instancia EC2 (una sola vez)
-
-En la instancia Ubuntu (por SSH):
-
-```bash
-# Docker + plugin de compose
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# Permite correr docker sin sudo (cierra sesion y vuelve a entrar despues)
-sudo usermod -aG docker $USER
-
-# Clonar el repo en la ruta que se usara para el despliegue
-git clone https://github.com/Blacknight3648/digitalfix-ms-workorders.git
-cd digitalfix-ms-workorders
-git checkout deploy
-
-# Variables de entorno reales del servidor (nunca se suben a git)
-cp .env.example .env
-nano .env   # completar SPRING_DATASOURCE_URL/USERNAME/PASSWORD, CORS_ALLOWED_ORIGINS, APP_PORT
-chmod 600 .env
-```
-
-Subir la wallet al servidor **desde tu PC** (nunca por git), y protegerla:
-
-```bash
-# En tu PC, desde la raiz del proyecto
-scp -i <tu-llave>.pem -r wallet ubuntu@<IP-publica-EC2>:~/digitalfix-ms-workorders/
-
-# En el EC2
-chmod 700 ~/digitalfix-ms-workorders/wallet
-chmod 644 ~/digitalfix-ms-workorders/wallet/*   # el contenedor corre con un usuario no root y debe poder leerla
-```
-
-> `git reset --hard` del pipeline **no borra** `wallet/` ni `.env` porque estan en `.gitignore` (git no toca archivos ignorados).
-
-> Este servicio depende de la red Docker `digitalfix-net` que crea
-> `digitalfix-ms-login` (o `docker network create digitalfix-net`).
-
-Primer levantamiento manual, para validar que todo funciona:
-
-```bash
-docker compose -f docker-compose.prod.yaml up -d --build
-```
-
-El servicio queda disponible en `http://<IP-publica-EC2>:<APP_PORT>` (por
-defecto `8081`).
-
-### 2. Abrir el puerto en el Security Group
-
-En la consola de AWS, en el Security Group asociado a la instancia, agregar
-una regla de entrada (Inbound rule) para el puerto definido en `APP_PORT`
-(TCP, `8081` por defecto), idealmente restringida al origen que realmente
-necesita llegar al servicio (por ejemplo, la IP del API Gateway o del BFF).
-
-### 3. Configurar GitHub Actions (despliegue automatico)
-
-El workflow [`​.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
-se conecta por SSH al EC2 con cada push a `deploy` y corre
-`docker compose -f docker-compose.prod.yaml up -d --build`. No toca el
-archivo `.env` ni la carpeta `wallet/` del servidor: los secretos de base de datos viven solo ahi.
-
-En GitHub: **Settings → Secrets and variables → Actions → New repository
-secret**, y crear:
-
-| Secret | Descripcion | Ejemplo |
-|---|---|---|
-| `EC2_HOST` | IP publica o DNS de la instancia | `54.210.xxx.xxx` |
-| `EC2_USERNAME` | Usuario SSH | `ubuntu` |
-| `EC2_SSH_KEY` | Contenido completo de la llave privada `.pem` usada para conectarse | `-----BEGIN RSA PRIVATE KEY-----...` |
-| `EC2_PORT` | Puerto SSH (opcional, por defecto 22) | `22` |
-| `EC2_DEPLOY_PATH` | Ruta absoluta del repo clonado en el EC2 | `/home/ubuntu/digitalfix-ms-workorders` |
-
-A partir de ahi, cada `git push origin deploy` reconstruye y reinicia el
-contenedor en EC2 automaticamente. También se puede disparar manualmente
-desde la pestaña **Actions** del repositorio (`workflow_dispatch`).
-
-### 4. Actualizaciones posteriores
-
-No se necesita hacer nada manual: basta con mergear/pushear a `deploy`. Para
-un despliegue manual (sin esperar al pipeline), en el EC2:
-
-```bash
-cd digitalfix-ms-workorders
-git pull origin deploy
-docker compose -f docker-compose.prod.yaml up -d --build
-```
+El contenedor monta el directorio local `./wallet` en `/app/wallet:ro` como volumen de solo lectura, manteniendo el aislamiento seguro de las credenciales de base de datos.
+
+### 8.4 Despliegue Continuo en AWS EC2 (Pipeline CI/CD)
+El proyecto cuenta con un flujo automatizado de despliegue continuo mediante GitHub Actions ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) configurado sobre la rama `deploy`:
+1. El pipeline establece conexion segura mediante protocolo SSH hacia la instancia EC2 de AWS.
+2. Descarga la version autorizada en el servidor destino.
+3. Ejecuta `docker compose -f docker-compose.prod.yaml up -d --build`.
+4. El contenedor se reinicia de manera transparente sin alterar el archivo `.env` ni los certificados de la carpeta `wallet/` alojados de manera aislada en el host EC2.
