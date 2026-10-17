@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.dto;
+package df.digitalfix_ms_workorders.dto.OrdenTrabajo;
 
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;

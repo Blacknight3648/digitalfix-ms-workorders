@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.dto;
+package df.digitalfix_ms_workorders.dto.OrdenTrabajo;
 
 import jakarta.validation.constraints.Size;
 

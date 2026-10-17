@@ -1,6 +1,12 @@
 package df.digitalfix_ms_workorders.service;
 
 import df.digitalfix_ms_workorders.dto.*;
+import df.digitalfix_ms_workorders.dto.OrdenServicio.DetalleServicioRequest;
+import df.digitalfix_ms_workorders.dto.OrdenTrabajo.ActualizarOrdenTrabajoRequest;
+import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
+import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoResponse;
+import df.digitalfix_ms_workorders.dto.Repuesto.DetalleRepuestoRequest;
+import df.digitalfix_ms_workorders.dto.Tecnico.AsignarTecnicoRequest;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;
 import df.digitalfix_ms_workorders.model.common.OperacionNoPermitidaException;
@@ -41,10 +47,17 @@ public class OrdenTrabajoService {
         return OrdenTrabajoResponse.from(ordenTrabajoRepository.saveAndFlush(orden));
     }
 
-    public List<OrdenTrabajoResponse> listar(EstadoOrden estado) {
-        List<OrdenTrabajo> ordenes = estado != null
-                ? ordenTrabajoRepository.findByEstado(estado)
-                : ordenTrabajoRepository.findAll();
+    public List<OrdenTrabajoResponse> listar(EstadoOrden estado, Long idCliente) {
+        List<OrdenTrabajo> ordenes;
+        if (estado != null && idCliente != null) {
+            ordenes = ordenTrabajoRepository.findByEstadoAndCliente_IdCliente(estado, idCliente);
+        } else if (estado != null) {
+            ordenes = ordenTrabajoRepository.findByEstado(estado);
+        } else if (idCliente != null) {
+            ordenes = ordenTrabajoRepository.findByCliente_IdCliente(idCliente);
+        } else {
+            ordenes = ordenTrabajoRepository.findAll();
+        }
         return ordenes.stream().map(OrdenTrabajoResponse::from).toList();
     }
 

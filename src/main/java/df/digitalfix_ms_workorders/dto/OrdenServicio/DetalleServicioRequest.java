@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.dto;
+package df.digitalfix_ms_workorders.dto.OrdenServicio;
 
 import jakarta.validation.constraints.*;
 

@@ -1,3 +1,5 @@
+#Swagger UI - Documentación de la API: http://localhost:8080/swagger-ui.html
+
 spring:
   application:
     name: digitalfix-ms-workorders
@@ -33,3 +35,12 @@ spring:
 # y docker-compose lo publica como 8081 en el host.
 server:
   port: ${SERVER_PORT:8080}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+    display-request-duration: true

@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.dto;
+package df.digitalfix_ms_workorders.dto.Tecnico;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;

@@ -1,4 +1,4 @@
-package df.digitalfix_ms_workorders.dto;
+package df.digitalfix_ms_workorders.dto.Repuesto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotNull;

@@ -23,4 +23,10 @@ public interface OrdenTrabajoRepository extends JpaRepository<OrdenTrabajo, Long
 
     @EntityGraph(attributePaths = "cliente")
     List<OrdenTrabajo> findByEstado(EstadoOrden estado);
+
+    @EntityGraph(attributePaths = "cliente")
+    List<OrdenTrabajo> findByCliente_IdCliente(Long idCliente);
+
+    @EntityGraph(attributePaths = "cliente")
+    List<OrdenTrabajo> findByEstadoAndCliente_IdCliente(EstadoOrden estado, Long idCliente);
 }
