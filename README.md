@@ -253,3 +253,7 @@ El proyecto cuenta con un flujo automatizado de despliegue continuo mediante Git
 2. Descarga la version autorizada en el servidor destino.
 3. Ejecuta `docker compose -f docker-compose.prod.yaml up -d --build`.
 4. El contenedor se reinicia de manera transparente sin alterar el archivo `.env` ni los certificados de la carpeta `wallet/` alojados de manera aislada en el host EC2.
+
+Swagger: http://localhost:8081/swagger-ui.html
+Especificación OpenAPI: http://localhost:8081/v3/api-docs
+Infraestructura de microservicios: docker network create digitalfix-net
