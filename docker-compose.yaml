@@ -34,6 +34,11 @@ services:
       # ms-user en la red digitalfix-net (nombre del servicio/contenedor)
       - MS_USER_URL=${MS_USER_URL:-http://ms-user-service:8082}
       - JAVA_OPTS=-Djava.net.preferIPv4Stack=true
+      - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
+      - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USERNAME=${RABBITMQ_USERNAME:-admin}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:-admin123}
+      - RABBITMQ_VIRTUAL_HOST=${RABBITMQ_VIRTUAL_HOST:-/}
     volumes:
       # La wallet se monta en tiempo de ejecucion: nunca queda dentro de la imagen
       - ./wallet:/app/wallet:ro
