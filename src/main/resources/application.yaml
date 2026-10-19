@@ -2,13 +2,26 @@
 
 spring:
   application:
-    name: digitalfix-ms-workorders
+    name: ms-digitalfix-workorders
 
   # Carga el archivo .env de la raiz del proyecto (si existe), asi no hay que
   # setear las variables a mano en cada PC. En Docker/EC2 no hace falta: las
   # variables llegan por "environment"/"env_file" y tienen prioridad.
   config:
     import: optional:file:.env[.properties]
+
+  # Conexión al clúster de RabbitMQ
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:admin}
+    password: ${RABBITMQ_PASSWORD:admin123}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+        max-attempts: 3
 
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
@@ -31,10 +44,20 @@ spring:
     table: flyway_schema_history_workorders
     locations: classpath:db/migration
 
-# Puerto local configurable desde .env (SERVER_PORT). En Docker queda en 8080
-# y docker-compose lo publica como 8081 en el host.
+# Puerto local configurable desde .env (PORT o SERVER_PORT).
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8081}}
+
+# Definición de Exchanges y Routing Keys de DigitalFix
+digitalfix:
+  rabbitmq:
+    exchanges:
+      direct: cmd.direct
+      topic: cmd.topic
+    routing-keys:
+      email: email.send
+      dispatch: dispatch.ticket
+      report: report.gen
 
 springdoc:
   api-docs:
