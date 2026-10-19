@@ -1,36 +1,22 @@
 package df.digitalfix_ms_workorders.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+/**
+ * Adaptador de compatibilidad hacia {@link com.digitalfix.workorders.config.RabbitProducerConfig}.
+ */
 public class RabbitProducerConfig {
 
-    /**
-     * Configura el convertidor JSON utilizando ObjectMapper con soporte para LocalDateTime.
-     */
-    @Bean
+    private final com.digitalfix.workorders.config.RabbitProducerConfig delegate =
+            new com.digitalfix.workorders.config.RabbitProducerConfig();
+
     public MessageConverter jsonMessageConverter() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
-        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return new Jackson2JsonMessageConverter(objectMapper);
+        return delegate.jsonMessageConverter();
     }
 
-    /**
-     * Define el Bean de RabbitTemplate asignando el convertidor JSON configurado.
-     */
-    @Bean
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter jsonMessageConverter) {
-        RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
-        rabbitTemplate.setMessageConverter(jsonMessageConverter);
-        return rabbitTemplate;
+        return delegate.rabbitTemplate(connectionFactory, jsonMessageConverter);
     }
 }
