@@ -3,6 +3,9 @@ package df.digitalfix_ms_workorders.service;
 import df.digitalfix_ms_workorders.dto.*;
 import df.digitalfix_ms_workorders.dto.Cuadrilla.AsignarCuadrillaRequest;
 import df.digitalfix_ms_workorders.dto.OrdenServicio.DetalleServicioRequest;
+import df.digitalfix_ms_workorders.model.common.DatoInvalidoException;
+import df.digitalfix_ms_workorders.model.servicios.Servicio;
+import java.math.BigDecimal;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.ActualizarOrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoResponse;
@@ -38,6 +41,7 @@ public class OrdenTrabajoService {
     private final ClienteRepository clienteRepository;
     private final ProveedorRepository proveedorRepository;
     private final CuadrillaRepository cuadrillaRepository;
+    private final ServicioService servicioService;
 
     @Transactional
     public OrdenTrabajoResponse crear(OrdenTrabajoRequest request) {
@@ -45,8 +49,7 @@ public class OrdenTrabajoService {
                 .orElseThrow(() -> noEncontrado("No existe un cliente con id " + request.idCliente()));
         OrdenTrabajo orden = new OrdenTrabajo(cliente, request.observaciones());
         if (request.servicios() != null) {
-            request.servicios().forEach(s -> orden.agregarServicio(
-                    s.idServicio(), s.idTecnico(), s.descripcionManoObra(), s.precioManoObra()));
+            request.servicios().forEach(s -> agregarServicioDelCatalogo(orden, s));
         }
         return OrdenTrabajoResponse.from(ordenTrabajoRepository.saveAndFlush(orden));
     }
@@ -86,9 +89,15 @@ public class OrdenTrabajoService {
     @Transactional
     public OrdenTrabajoResponse agregarServicio(Long id, DetalleServicioRequest request) {
         OrdenTrabajo orden = obtener(id);
-        orden.agregarServicio(request.idServicio(), request.idTecnico(),
-                request.descripcionManoObra(), request.precioManoObra());
+        agregarServicioDelCatalogo(orden, request);
         return guardar(orden);
+    }
+
+    // El servicio debe existir y estar activo en el catálogo; sin precio explícito se cobra su tarifa.
+    private void agregarServicioDelCatalogo(OrdenTrabajo orden, DetalleServicioRequest request) {
+        Servicio servicio = servicioService.obtenerActivo(request.idServicio());
+        BigDecimal precio = request.precioManoObra() != null ? request.precioManoObra() : servicio.getTarifa();
+        orden.agregarServicio(servicio.getIdServicio(), request.idTecnico(), request.descripcionManoObra(), precio);
     }
 
     @Transactional
@@ -123,6 +132,10 @@ public class OrdenTrabajoService {
         OrdenTrabajo orden = obtener(id);
         Proveedor proveedor = proveedorRepository.findById(request.idProveedor())
                 .orElseThrow(() -> noEncontrado("No existe un proveedor con id " + request.idProveedor()));
+        if (!proveedor.abasteceProductos()) {
+            throw new DatoInvalidoException("El proveedor " + proveedor.getRazonSocial()
+                    + " es de servicios; los repuestos deben venir de un proveedor de productos");
+        }
         orden.agregarRepuesto(request.idRepuesto(), proveedor, request.cantidad());
         return guardar(orden);
     }

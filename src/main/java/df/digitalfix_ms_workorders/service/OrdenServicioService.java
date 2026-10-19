@@ -12,6 +12,8 @@ import df.digitalfix_ms_workorders.model.common.DatoInvalidoException;
 import df.digitalfix_ms_workorders.model.common.OperacionNoPermitidaException;
 import df.digitalfix_ms_workorders.model.ordenServicio.DetalleOrdenServicio;
 import df.digitalfix_ms_workorders.model.ordenServicio.OrdenServicio;
+import df.digitalfix_ms_workorders.model.servicios.Servicio;
+import java.math.BigDecimal;
 import df.digitalfix_ms_workorders.repository.ClienteRepository;
 import df.digitalfix_ms_workorders.repository.OrdenServicioRepository;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ public class OrdenServicioService {
 
     private final OrdenServicioRepository ordenServicioRepository;
     private final ClienteRepository clienteRepository;
+    private final ServicioService servicioService;
 
     @Transactional
     public OrdenServicioResponse crear(OrdenServicioRequest request) {
@@ -38,8 +41,7 @@ public class OrdenServicioService {
 
         OrdenServicio orden = new OrdenServicio(cliente, request.observaciones());
         if (request.detalles() != null) {
-            request.detalles().forEach(d -> orden.agregarDetalle(
-                    d.idServicio(), d.cantidad(), d.precioUnitario()));
+            request.detalles().forEach(d -> agregarDetalleDelCatalogo(orden, d));
         }
 
         return guardar(orden);
@@ -87,8 +89,15 @@ public class OrdenServicioService {
     @Transactional
     public OrdenServicioResponse agregarDetalle(Long id, DetalleOrdenServicioRequest request) {
         OrdenServicio orden = obtener(id);
-        orden.agregarDetalle(request.idServicio(), request.cantidad(), request.precioUnitario());
+        agregarDetalleDelCatalogo(orden, request);
         return guardar(orden);
+    }
+
+    // El servicio debe existir y estar activo en el catálogo; sin precio explícito se cobra su tarifa.
+    private void agregarDetalleDelCatalogo(OrdenServicio orden, DetalleOrdenServicioRequest request) {
+        Servicio servicio = servicioService.obtenerActivo(request.idServicio());
+        BigDecimal precio = request.precioUnitario() != null ? request.precioUnitario() : servicio.getTarifa();
+        orden.agregarDetalle(servicio.getIdServicio(), request.cantidad(), precio);
     }
 
     @Transactional

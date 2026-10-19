@@ -1,4 +1,4 @@
-#Swagger UI - Documentación de la API: http://localhost:8080/swagger-ui.html
+#Swagger UI - Documentación de la API: http://localhost:8085/swagger-ui.html
 
 spring:
   application:
@@ -31,8 +31,8 @@ spring:
     table: flyway_schema_history_workorders
     locations: classpath:db/migration
 
-# Puerto local configurable desde .env (SERVER_PORT). En Docker queda en 8080
-# y docker-compose lo publica como 8081 en el host.
+# Puerto local configurable desde .env (SERVER_PORT=8085). En Docker queda en 8080
+# y docker-compose lo publica como 8085 en el host (8081 en la EC2 de produccion).
 server:
   port: ${SERVER_PORT:8080}
 
@@ -44,3 +44,9 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
     display-request-duration: true
+
+# ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.
+# En Docker MS_USER_URL apunta al contenedor (http://ms-user-service:8082).
+digitalfix:
+  ms-user:
+    url: ${MS_USER_URL:http://localhost:8082}

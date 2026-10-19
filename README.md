@@ -35,7 +35,7 @@ El sistema DigitalFix responde a la necesidad de estandarizar la coordinacion y 
   * Coordinacion y despacho atómico de Cuadrillas de Terreno con bloqueo pesimista a nivel de base de datos.
   * Exposicion de contratos REST en idioma espanol y documentacion viva mediante OpenAPI (Swagger UI).
 * **Fuera del Alcance (Out of Scope - Delegado a otros componentes):**
-  * Validacion perimetral del token JWT de Azure AD: Esta responsabilidad recae en el componente API Gateway y en el microservicio `ms-digitalfix-bff`, el cual valida la identidad y roles antes del reenvio a los servicios de dominio.
+  * Validacion perimetral del token JWT de Azure AD: recae tambien en el API Gateway y en `ms-digitalfix-bff`. Ademas, este servicio valida el JWT por su cuenta (defensa en profundidad), ver seccion 4.4.
   * Consumo analitico y auditoria de eventos: La emision y agregacion de eventos para reporteria y timeline es delegada a los microservicios `ms-digitalfix-report` y `ms-digitalfix-audit` mediante la infraestructura Kafka.
   * Notificaciones en tiempo real al cliente y despacho al tecnico: Delegado a `ms-digitalfix-notify` a traves de colas RabbitMQ.
 
@@ -83,9 +83,14 @@ De acuerdo con las politicas de seguridad del proyecto, ningun secreto, certific
 | `SPRING_DATASOURCE_URL` | Cadena de conexion JDBC Oracle con alias TNS y ruta de wallet | `jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet` |
 | `SPRING_DATASOURCE_USERNAME` | Usuario administrador de esquema de la base de datos | `ADMIN` |
 | `SPRING_DATASOURCE_PASSWORD` | Contrasena del usuario de base de datos | Credencial privada de entorno |
-| `SERVER_PORT` | Puerto HTTP para ejecucion local | `8081` |
-| `APP_PORT` | Puerto expuesto en el host mediante Docker Compose | `8081` |
+| `SERVER_PORT` | Puerto HTTP para ejecucion local | `8085` |
+| `APP_PORT` | Puerto expuesto en el host mediante Docker Compose | `8085` |
 | `CORS_ALLOWED_ORIGINS` | Lista blanca de origenes permitidos para navegadores | `http://localhost:4200` |
+| `AZURE_TENANT_ID` | Tenant de Microsoft Entra ID que emite los tokens | `3fb8463e-...` |
+| `AZURE_CLIENT_ID` | Client ID de la API (audiencia `aud` del JWT) | `9494b59c-...` |
+| `MS_USER_URL` | URL de ms-user, de donde se obtiene el rol del usuario | `http://localhost:8082` |
+
+**Puerto asignado:** `8085` en desarrollo local, unico dentro del ecosistema (ver la [tabla de puertos](https://github.com/SolgreyDuocUC/digitalfix-infrastructure#86-puertos-de-los-microservicios) en `digitalfix-infrastructure`). Dentro del contenedor la aplicacion siempre escucha en `8080`; Docker Compose la publica en `8085` en local y `docker-compose.prod.yaml` en `8081` en la EC2 de produccion.
 
 ### 4.3 Procedimiento de Configuracion Local
 1. Obtener el archivo comprimido de la Wallet oficial entregado por el administrador de base de datos (por ejemplo, `Wallet_CLX44JOCT2DJMLZ9.zip`).
@@ -105,14 +110,32 @@ De acuerdo con las politicas de seguridad del proyecto, ningun secreto, certific
 
 ---
 
+### 4.4 Seguridad: validacion del JWT y autorizacion por rol
+
+El servicio es un **OAuth2 Resource Server** con la misma configuracion que `ms-login` y `ms-user` ([`SecurityConfig`](src/main/java/df/digitalfix_ms_workorders/security/SecurityConfig.java)):
+
+* **Validacion del token:** firma con las claves publicas del tenant, vigencia (`exp`/`nbf`), issuer del tenant (v1 o v2) y audiencia `AZURE_CLIENT_ID` o `api://AZURE_CLIENT_ID`.
+* **Roles:** claim `roles` del token y rol del usuario en `ms-user` (`GET /api/user/me` con el mismo JWT, cache de 5 minutos). `SUPERADMIN` hereda todos los roles.
+* **Errores:** `401` (token ausente, invalido o vencido) y `403` (rol insuficiente), en JSON.
+
+| Recurso | Consultar (GET) | Crear / editar datos | Operar (estado, tecnico, cuadrilla, servicios, repuestos) y borrar |
+|---|---|---|---|
+| `/api/ordenes-trabajo`, `/api/ordenes-servicio` | Admin, Supervisor, Tecnico, Cliente | Admin, Supervisor, Cliente | Admin, Supervisor |
+| `/api/clientes` | Admin, Supervisor, Cliente | Admin, Supervisor | Admin, Supervisor |
+| `/api/cuadrillas`, `/api/proveedores` | Admin, Supervisor | Admin, Supervisor | Admin, Supervisor |
+
+Swagger UI y el preflight CORS (`OPTIONS`) son publicos.
+
+---
+
 ## 5. Especificacion de Interfaces de Servicio (API REST)
 
 Todos los endpoints estan configurados en idioma espanol bajo el prefijo `/api/`.
 
 ### 5.1 Documentacion Interactiva OpenAPI (Swagger)
 Una vez iniciada la aplicacion, la documentacion tecnica interactiva y el esquema OpenAPI se encuentran disponibles en:
-* Interfaz de Usuario Swagger: `http://localhost:8081/swagger-ui.html`
-* Especificacion OpenAPI (JSON): `http://localhost:8081/v3/api-docs`
+* Interfaz de Usuario Swagger: `http://localhost:8085/swagger-ui.html`
+* Especificacion OpenAPI (JSON): `http://localhost:8085/v3/api-docs`
 
 ### 5.2 Modulo de Clientes (`/api/clientes`)
 | Metodo | Ruta | Descripcion | Codigo Exito |
@@ -253,7 +276,8 @@ El proyecto cuenta con un flujo automatizado de despliegue continuo mediante Git
 2. Descarga la version autorizada en el servidor destino.
 3. Ejecuta `docker compose -f docker-compose.prod.yaml up -d --build`.
 4. El contenedor se reinicia de manera transparente sin alterar el archivo `.env` ni los certificados de la carpeta `wallet/` alojados de manera aislada en el host EC2.
+5. En la EC2 el servicio queda publicado en el puerto `8081` (abierto en el Security Group), a diferencia del `8085` de desarrollo local.
 
-Swagger: http://localhost:8081/swagger-ui.html
-Especificación OpenAPI: http://localhost:8081/v3/api-docs
+Swagger: http://localhost:8085/swagger-ui.html
+Especificación OpenAPI: http://localhost:8085/v3/api-docs
 Infraestructura de microservicios: docker network create digitalfix-net

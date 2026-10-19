@@ -3,6 +3,7 @@ package df.digitalfix_ms_workorders.controller;
 import df.digitalfix_ms_workorders.dto.Proveedor.ActualizarProveedorRequest;
 import df.digitalfix_ms_workorders.dto.Proveedor.ProveedorRequest;
 import df.digitalfix_ms_workorders.dto.Proveedor.ProveedorResponse;
+import df.digitalfix_ms_workorders.enums.TipoProveedor;
 import df.digitalfix_ms_workorders.service.ProveedorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,9 +31,10 @@ public class ProveedorController {
     }
 
     @GetMapping
-    @Operation(summary = "Listar proveedores", description = "Retorna el catálogo completo de proveedores registrados.")
-    public ResponseEntity<List<ProveedorResponse>> listar() {
-        return ResponseEntity.ok(proveedorService.listar());
+    @Operation(summary = "Listar proveedores",
+            description = "Retorna los proveedores ordenados por razón social; con tipo=SERVICIOS o tipo=PRODUCTOS filtra por tipo.")
+    public ResponseEntity<List<ProveedorResponse>> listar(@RequestParam(required = false) TipoProveedor tipo) {
+        return ResponseEntity.ok(proveedorService.listar(tipo));
     }
 
     @GetMapping("/{id}")

@@ -5,9 +5,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-// Este microservicio no usa Spring Security (ver nota en application.yaml),
-// asi que el CORS se configura directo sobre Spring MVC para que el frontend
-// Angular (otro origen, ej. http://localhost:4200) pueda llamarlo desde el navegador.
+// CORS sobre Spring MVC para que el frontend Angular (otro origen, ej.
+// http://localhost:4200) pueda llamarlo desde el navegador. SecurityConfig lo
+// reutiliza con cors(Customizer.withDefaults()), así el preflight pasa antes
+// de exigir el JWT.
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 

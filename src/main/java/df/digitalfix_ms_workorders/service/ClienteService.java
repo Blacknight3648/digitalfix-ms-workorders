@@ -21,6 +21,7 @@ import java.util.List;
 public class ClienteService {
 
     private final ClienteRepository clienteRepository;
+    private final UbicacionService ubicacionService;
 
     @Transactional
     public ClienteResponse crear(ClienteRequest request) {
@@ -31,26 +32,18 @@ public class ClienteService {
 
         Cliente cliente = new Cliente(
                 rut,
-                request.nombres(),
-                request.apellidoPaterno(),
-                request.apellidoMaterno(),
+                request.nombre(),
                 request.telefono(),
-                request.email()
+                request.telefonoSecundario(),
+                request.email(),
+                ubicacionService.aplicar(null, request.direccion())
         );
-
-        if (request.telefonoSecundario() != null) {
-            cliente.actualizarContacto(request.telefono(), request.telefonoSecundario(), request.email());
-        }
-
-        if (request.idDireccion() != null) {
-            cliente.asignarDireccion(request.idDireccion());
-        }
 
         return ClienteResponse.from(clienteRepository.saveAndFlush(cliente));
     }
 
     public List<ClienteResponse> listar() {
-        return clienteRepository.findAll()
+        return clienteRepository.findAllByOrderByNombreAsc()
                 .stream()
                 .map(ClienteResponse::from)
                 .toList();
@@ -63,9 +56,9 @@ public class ClienteService {
     @Transactional
     public ClienteResponse actualizar(Long id, ActualizarClienteRequest request) {
         Cliente cliente = obtener(id);
-        cliente.actualizarNombre(request.nombres(), request.apellidoPaterno(), request.apellidoMaterno());
+        cliente.actualizarNombre(request.nombre());
         cliente.actualizarContacto(request.telefono(), request.telefonoSecundario(), request.email());
-        cliente.asignarDireccion(request.idDireccion());
+        cliente.asignarDireccion(ubicacionService.aplicar(cliente.getDireccion(), request.direccion()));
         return ClienteResponse.from(clienteRepository.saveAndFlush(cliente));
     }
 

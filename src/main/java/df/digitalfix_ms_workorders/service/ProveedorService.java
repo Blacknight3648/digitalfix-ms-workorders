@@ -3,6 +3,7 @@ package df.digitalfix_ms_workorders.service;
 import df.digitalfix_ms_workorders.dto.Proveedor.ActualizarProveedorRequest;
 import df.digitalfix_ms_workorders.dto.Proveedor.ProveedorRequest;
 import df.digitalfix_ms_workorders.dto.Proveedor.ProveedorResponse;
+import df.digitalfix_ms_workorders.enums.TipoProveedor;
 import df.digitalfix_ms_workorders.model.common.DatoInvalidoException;
 import df.digitalfix_ms_workorders.model.common.Rut;
 import df.digitalfix_ms_workorders.model.proveedores.Proveedor;
@@ -21,6 +22,7 @@ import java.util.List;
 public class ProveedorService {
 
     private final ProveedorRepository proveedorRepository;
+    private final UbicacionService ubicacionService;
 
     @Transactional
     public ProveedorResponse crear(ProveedorRequest request) {
@@ -32,23 +34,22 @@ public class ProveedorService {
         Proveedor proveedor = new Proveedor(
                 rut,
                 request.razonSocial(),
+                request.tipo(),
                 request.giro(),
                 request.telefono(),
-                request.email()
+                request.email(),
+                ubicacionService.aplicar(null, request.direccion())
         );
-
-        if (request.idDireccion() != null) {
-            proveedor.asignarDireccion(request.idDireccion());
-        }
 
         return ProveedorResponse.from(proveedorRepository.saveAndFlush(proveedor));
     }
 
-    public List<ProveedorResponse> listar() {
-        return proveedorRepository.findAll()
-                .stream()
-                .map(ProveedorResponse::from)
-                .toList();
+    /** Con {@code tipo} filtra por proveedores de servicios o de productos. */
+    public List<ProveedorResponse> listar(TipoProveedor tipo) {
+        List<Proveedor> proveedores = tipo == null
+                ? proveedorRepository.findAllByOrderByRazonSocialAsc()
+                : proveedorRepository.findByTipoOrderByRazonSocialAsc(tipo);
+        return proveedores.stream().map(ProveedorResponse::from).toList();
     }
 
     public ProveedorResponse buscarPorId(Long id) {
@@ -58,9 +59,9 @@ public class ProveedorService {
     @Transactional
     public ProveedorResponse actualizar(Long id, ActualizarProveedorRequest request) {
         Proveedor proveedor = obtener(id);
-        proveedor.actualizarDatosComerciales(request.razonSocial(), request.giro());
+        proveedor.actualizarDatosComerciales(request.razonSocial(), request.tipo(), request.giro());
         proveedor.actualizarContacto(request.telefono(), request.email());
-        proveedor.asignarDireccion(request.idDireccion());
+        proveedor.asignarDireccion(ubicacionService.aplicar(proveedor.getDireccion(), request.direccion()));
         return ProveedorResponse.from(proveedorRepository.saveAndFlush(proveedor));
     }
 

@@ -18,7 +18,7 @@ public record DetalleOrdenServicioRequest(
         @Max(value = 999, message = "La cantidad excede el máximo permitido")
         Integer cantidad,
 
-        @NotNull(message = "El precio unitario es obligatorio")
+        // Opcional: si no se envía se cobra la tarifa vigente del servicio en el catálogo.
         @DecimalMin(value = "0.00", message = "El precio no puede ser negativo")
         @Digits(integer = 10, fraction = 2, message = "El precio admite hasta 10 enteros y 2 decimales")
         BigDecimal precioUnitario

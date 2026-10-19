@@ -74,6 +74,29 @@ public final class SanitizadorTexto {
         return digitos;
     }
 
+    /** Deja solo los dígitos (ej. código postal "832-0000" → "8320000"). {@code null} si no queda ninguno. */
+    public static String soloDigitos(String valor) {
+        String limpio = texto(valor);
+        if (limpio == null) {
+            return null;
+        }
+        String digitos = limpio.replaceAll("\\D", "");
+        return digitos.isEmpty() ? null : digitos;
+    }
+
+    /** Texto de una línea con la primera letra en mayúscula ("revisión de tablero" → "Revisión de tablero"). */
+    public static String capitalizarPrimeraLetra(String valor) {
+        String limpio = texto(valor);
+        if (limpio == null) {
+            return null;
+        }
+        int primera = limpio.codePointAt(0);
+        return new StringBuilder()
+                .appendCodePoint(Character.toUpperCase(primera))
+                .append(limpio.substring(Character.charCount(primera)))
+                .toString();
+    }
+
     private static String normalizarUnicode(String valor) {
         return Normalizer.normalize(valor, Normalizer.Form.NFC);
     }

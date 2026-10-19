@@ -1,5 +1,6 @@
 package df.digitalfix_ms_workorders.dto.Cliente;
 
+import df.digitalfix_ms_workorders.dto.Ubicacion.DireccionResponse;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;
 
 import java.time.LocalDateTime;
@@ -7,14 +8,11 @@ import java.time.LocalDateTime;
 public record ClienteResponse(
         Long idCliente,
         String rut,
-        String nombres,
-        String apellidoPaterno,
-        String apellidoMaterno,
         String nombreCompleto,
         String telefono,
         String telefonoSecundario,
         String email,
-        Long idDireccion,
+        DireccionResponse direccion,
         LocalDateTime fechaCreacion,
         LocalDateTime fechaActualizacion
 ) {
@@ -22,14 +20,11 @@ public record ClienteResponse(
         return new ClienteResponse(
                 c.getIdCliente(),
                 c.getRut().formateado(),
-                c.getNombres(),
-                c.getApellidoPaterno(),
-                c.getApellidoMaterno(),
                 c.getNombreCompleto(),
                 c.getTelefono(),
                 c.getTelefonoSecundario(),
                 c.getEmail(),
-                c.getIdDireccion(),
+                DireccionResponse.from(c.getDireccion()),
                 c.getFechaCreacion(),
                 c.getFechaActualizacion()
         );

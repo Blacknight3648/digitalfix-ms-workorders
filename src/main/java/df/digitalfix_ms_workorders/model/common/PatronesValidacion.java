@@ -15,6 +15,18 @@ public final class PatronesValidacion {
     /** Teléfono chileno normalizado por {@link SanitizadorTexto#telefono(String)}. */
     public static final String TELEFONO_CHILE = "^\\+56\\d{9}$";
 
+    /** Código de servicio del catálogo: mayúsculas, números y guiones, sin empezar ni terminar en guion. */
+    public static final String CODIGO_SERVICIO = "^[A-Z0-9]+(-[A-Z0-9]+)*$";
+
+    /** Nombre de calle o detalle (depto, oficina): letras, números y signos habituales en direcciones. */
+    public static final String CALLE = "^[\\p{L}\\p{N}][\\p{L}\\p{N} .,#º°'/-]*$";
+
+    /** Número de la dirección: hasta 6 dígitos con letra opcional (1234, 1234B) o S/N. */
+    public static final String NUMERO_DIRECCION = "^(\\d{1,6}[A-Z]?|S/N)$";
+
+    /** Código postal chileno (Correos de Chile): 7 dígitos. */
+    public static final String CODIGO_POSTAL_CHILE = "^\\d{7}$";
+
     private PatronesValidacion() {
     }
 }

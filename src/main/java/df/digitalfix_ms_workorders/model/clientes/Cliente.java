@@ -4,7 +4,9 @@ import df.digitalfix_ms_workorders.model.common.EntidadAuditable;
 import df.digitalfix_ms_workorders.model.common.PatronesValidacion;
 import df.digitalfix_ms_workorders.model.common.Rut;
 import df.digitalfix_ms_workorders.model.common.SanitizadorTexto;
+import df.digitalfix_ms_workorders.model.ubicacion.Direccion;
 import jakarta.persistence.*;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -13,8 +15,9 @@ import lombok.NoArgsConstructor;
 import java.util.Objects;
 
 /**
- * Cliente final. 3FN: el nombre se separa en componentes atómicos y la dirección se referencia
- * por ID al almacén central de direcciones (no se duplican sus columnas aquí).
+ * Cliente final: persona o empresa, identificada por su RUT. El nombre se pide en un solo campo
+ * (nombre completo o razón social) para que el registro sea simple. La dirección es propia del
+ * cliente (1 a 1) y se normaliza en DIRECCION → COMUNA → REGION (3FN).
  */
 @Entity
 @Table(name = "CLIENTE",
@@ -35,22 +38,11 @@ public class Cliente extends EntidadAuditable {
     @AttributeOverride(name = "dv", column = @Column(name = "DV_CLIENTE", nullable = false, updatable = false, length = 1))
     private Rut rut;
 
-    @NotBlank(message = "Los nombres son obligatorios")
-    @Size(max = 100, message = "Los nombres no pueden exceder 100 caracteres")
-    @Pattern(regexp = PatronesValidacion.NOMBRE_PERSONA, message = "Los nombres contienen caracteres no permitidos")
-    @Column(name = "NOMBRES_CLIENTE", nullable = false, length = 100)
-    private String nombres;
-
-    @NotBlank(message = "El apellido paterno es obligatorio")
-    @Size(max = 60, message = "El apellido paterno no puede exceder 60 caracteres")
-    @Pattern(regexp = PatronesValidacion.NOMBRE_PERSONA, message = "El apellido paterno contiene caracteres no permitidos")
-    @Column(name = "APELLIDO_PATERNO_CLIENTE", nullable = false, length = 60)
-    private String apellidoPaterno;
-
-    @Size(max = 60, message = "El apellido materno no puede exceder 60 caracteres")
-    @Pattern(regexp = PatronesValidacion.NOMBRE_PERSONA, message = "El apellido materno contiene caracteres no permitidos")
-    @Column(name = "APELLIDO_MATERNO_CLIENTE", length = 60)
-    private String apellidoMaterno;
+    @NotBlank(message = "El nombre es obligatorio")
+    @Size(max = 150, message = "El nombre no puede exceder 150 caracteres")
+    @Pattern(regexp = PatronesValidacion.RAZON_SOCIAL, message = "El nombre contiene caracteres no permitidos")
+    @Column(name = "NOMBRE_CLIENTE", nullable = false, length = 150)
+    private String nombre;
 
     @NotBlank(message = "El teléfono es obligatorio")
     @Pattern(regexp = PatronesValidacion.TELEFONO_CHILE, message = "El teléfono debe tener el formato +56XXXXXXXXX")
@@ -67,22 +59,25 @@ public class Cliente extends EntidadAuditable {
     @Column(name = "EMAIL_CLIENTE", nullable = false, length = 254)
     private String email;
 
-    /** Referencia a DIRECCION en el almacén central (otro servicio), por eso no es @ManyToOne. */
-    @Positive(message = "El ID de dirección no es válido")
-    @Column(name = "ID_DIRECCION")
-    private Long idDireccion;
+    /**
+     * Dónde se presta el servicio o se entrega el repuesto. Nula solo en clientes registrados
+     * antes de que existiera la dirección normalizada (la API la exige al crear y editar).
+     */
+    @Valid
+    @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @JoinColumn(name = "ID_DIRECCION", foreignKey = @ForeignKey(name = "FK_CLIENTE_DIRECCION"))
+    private Direccion direccion;
 
-    public Cliente(Rut rut, String nombres, String apellidoPaterno, String apellidoMaterno,
-                   String telefono, String email) {
+    public Cliente(Rut rut, String nombre, String telefono, String telefonoSecundario, String email,
+                   Direccion direccion) {
         this.rut = Objects.requireNonNull(rut, "El RUT del cliente es obligatorio");
-        actualizarNombre(nombres, apellidoPaterno, apellidoMaterno);
-        actualizarContacto(telefono, null, email);
+        actualizarNombre(nombre);
+        actualizarContacto(telefono, telefonoSecundario, email);
+        asignarDireccion(direccion);
     }
 
-    public void actualizarNombre(String nombres, String apellidoPaterno, String apellidoMaterno) {
-        this.nombres = SanitizadorTexto.texto(nombres);
-        this.apellidoPaterno = SanitizadorTexto.texto(apellidoPaterno);
-        this.apellidoMaterno = SanitizadorTexto.texto(apellidoMaterno);
+    public void actualizarNombre(String nombre) {
+        this.nombre = SanitizadorTexto.texto(nombre);
     }
 
     public void actualizarContacto(String telefono, String telefonoSecundario, String email) {
@@ -91,14 +86,12 @@ public class Cliente extends EntidadAuditable {
         this.email = SanitizadorTexto.email(email);
     }
 
-    public void asignarDireccion(Long idDireccion) {
-        this.idDireccion = idDireccion;
+    public void asignarDireccion(Direccion direccion) {
+        this.direccion = Objects.requireNonNull(direccion, "La dirección es obligatoria");
     }
 
-    /** Valor derivado: no se persiste para no introducir una dependencia transitiva. */
+    /** Se mantiene para las respuestas de órdenes, que exponen "nombreCompleto". */
     public String getNombreCompleto() {
-        return apellidoMaterno == null
-                ? nombres + " " + apellidoPaterno
-                : nombres + " " + apellidoPaterno + " " + apellidoMaterno;
+        return nombre;
     }
 }
