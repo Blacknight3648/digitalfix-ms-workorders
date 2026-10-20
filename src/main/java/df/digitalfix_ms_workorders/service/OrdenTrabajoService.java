@@ -21,7 +21,9 @@ import df.digitalfix_ms_workorders.repository.ClienteRepository;
 import df.digitalfix_ms_workorders.repository.CuadrillaRepository;
 import df.digitalfix_ms_workorders.repository.OrdenTrabajoRepository;
 import df.digitalfix_ms_workorders.repository.ProveedorRepository;
+import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEvento;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,8 @@ public class OrdenTrabajoService {
     private final ProveedorRepository proveedorRepository;
     private final CuadrillaRepository cuadrillaRepository;
     private final ServicioService servicioService;
+    // Eventos de dominio: se envían a RabbitMQ después del commit (OrdenTrabajoEventosListener).
+    private final ApplicationEventPublisher eventos;
 
     @Transactional
     public OrdenTrabajoResponse crear(OrdenTrabajoRequest request) {
@@ -51,7 +55,9 @@ public class OrdenTrabajoService {
         if (request.servicios() != null) {
             request.servicios().forEach(s -> agregarServicioDelCatalogo(orden, s));
         }
-        return OrdenTrabajoResponse.from(ordenTrabajoRepository.saveAndFlush(orden));
+        OrdenTrabajo guardada = ordenTrabajoRepository.saveAndFlush(orden);
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CREADA, guardada));
+        return OrdenTrabajoResponse.from(guardada);
     }
 
     public List<OrdenTrabajoResponse> listar(EstadoOrden estado, Long idCliente) {
@@ -83,7 +89,9 @@ public class OrdenTrabajoService {
     public OrdenTrabajoResponse cambiarEstado(Long id, CambioEstadoRequest request) {
         OrdenTrabajo orden = obtener(id);
         orden.cambiarEstado(request.estado());
-        return guardar(orden);
+        OrdenTrabajoResponse respuesta = guardar(orden);
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.ESTADO_CAMBIADO, orden));
+        return respuesta;
     }
 
     @Transactional
@@ -117,7 +125,9 @@ public class OrdenTrabajoService {
         Cuadrilla cuadrilla = cuadrillaRepository.findByIdConBloqueo(request.idCuadrilla())
                 .orElseThrow(() -> noEncontrado("No existe una cuadrilla con id " + request.idCuadrilla()));
         orden.asignarCuadrilla(cuadrilla);
-        return guardar(orden);
+        OrdenTrabajoResponse respuesta = guardar(orden);
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA, orden));
+        return respuesta;
     }
 
     @Transactional

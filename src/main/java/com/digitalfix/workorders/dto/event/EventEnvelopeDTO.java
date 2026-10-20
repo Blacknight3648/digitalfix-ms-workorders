@@ -1,5 +1,6 @@
 package com.digitalfix.workorders.dto.event;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,5 +25,7 @@ public class EventEnvelopeDTO<T> {
 
     private String traceId;
 
+    // En el JSON viaja como "data": es el contrato que consume ms-notify (EventEnvelopeDTO#data).
+    @JsonProperty("data")
     private T payload;
 }

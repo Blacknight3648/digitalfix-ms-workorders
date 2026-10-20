@@ -50,6 +50,7 @@ El sistema DigitalFix responde a la necesidad de estandarizar la coordinacion y 
 * Driver de Conexion: Oracle JDBC Driver (ojdbc17 version 23.9.0.25.07) con soporte PKI/TNS
 * Gestion de Migraciones: Flyway Migration (flyway-database-oracle version 11.14.1)
 * Documentacion de API: springdoc-openapi-starter-webmvc-ui version 3.1.0 (Swagger 3)
+* Mensajeria asincrona: Spring AMQP (`RabbitTemplate` + convertidor JSON) como productor hacia RabbitMQ
 * Herramienta de Construccion: Apache Maven 3.9+ (con Maven Wrapper integrado)
 * Contenedorizacion: Docker / Docker Compose con imagenes multi-etapa
 
@@ -89,6 +90,8 @@ De acuerdo con las politicas de seguridad del proyecto, ningun secreto, certific
 | `AZURE_TENANT_ID` | Tenant de Microsoft Entra ID que emite los tokens | `3fb8463e-...` |
 | `AZURE_CLIENT_ID` | Client ID de la API (audiencia `aud` del JWT) | `9494b59c-...` |
 | `MS_USER_URL` | URL de ms-user, de donde se obtiene el rol del usuario | `http://localhost:8082` |
+| `RABBITMQ_HOST` / `RABBITMQ_PORT` | Broker donde se publican los eventos de la OT | `localhost` / `5672` (en Docker: `rabbitmq`) |
+| `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` | Credenciales del broker (desde el `.env` central) | Credencial privada de entorno |
 
 **Puerto asignado:** `8085` en desarrollo local, unico dentro del ecosistema (ver la [tabla de puertos](https://github.com/SolgreyDuocUC/digitalfix-infrastructure#86-puertos-de-los-microservicios) en `digitalfix-infrastructure`). Dentro del contenedor la aplicacion siempre escucha en `8080`; Docker Compose la publica en `8085` en local y `docker-compose.prod.yaml` en `8081` en la EC2 de produccion.
 
@@ -194,6 +197,47 @@ Una vez iniciada la aplicacion, la documentacion tecnica interactiva y el esquem
 | POST | `/api/ordenes-trabajo/{id}/repuestos` | Registra repuestos utilizados asociando proveedor y cantidad consumida. | 201 Created |
 | DELETE | `/api/ordenes-trabajo/{id}/repuestos/{idDetalle}` | Elimina un registro de repuesto de la OT. | 200 OK |
 | DELETE | `/api/ordenes-trabajo/{id}` | Elimina la OT (solo habilitado si permanece en estado `CREADA`). | 204 No Content |
+
+### 5.7 Eventos asincronos publicados en RabbitMQ (productor)
+
+ms-workorders es el **productor** de eventos de la plataforma. Cada cambio relevante de una Orden de Trabajo se publica en RabbitMQ para que **ms-notify** lo procese sin bloquear la respuesta HTTP.
+
+| Caso de uso (endpoint) | Evento de dominio | Mensajes publicados (`cmd.direct`) |
+|---|---|---|
+| Crear OT (`POST /api/ordenes-trabajo`) | `CREADA` | `email.send` → `q.cmd.email`: correo "registramos tu orden" |
+| Cambiar estado (`PUT /api/ordenes-trabajo/{id}/estado`) | `ESTADO_CAMBIADO` | `email.send`: correo con el nuevo estado |
+| Asignar cuadrilla (`PUT /api/ordenes-trabajo/{id}/cuadrilla`) | `CUADRILLA_ASIGNADA` | `email.send` (correo "cuadrilla asignada") y `dispatch.ticket` → `q.cmd.dispatch` (ticket de despacho) |
+| Cerrar OT (estado `CERRADA`) | `ESTADO_CAMBIADO` | ademas `report.gen` → `q.cmd.report`: informe de cierre en PDF |
+
+**Diseno (separacion de responsabilidades):**
+
+| Clase | Responsabilidad |
+|---|---|
+| `service/OrdenTrabajoService` | Caso de uso de negocio. Al guardar, publica un `OrdenTrabajoEvento` con `ApplicationEventPublisher`; no conoce RabbitMQ. |
+| `messaging/OrdenTrabajoEvento` | Evento de dominio inmutable (record), armado dentro de la transaccion con los datos ya cargados. |
+| `messaging/OrdenTrabajoEventosListener` | `@TransactionalEventListener(AFTER_COMMIT)`: traduce el evento a los mensajes de cada cola. Solo publica si la transaccion se confirmo (nunca notifica un cambio que termino en rollback). |
+| `com.digitalfix.workorders.service.WorkOrderService` | Publicacion con `RabbitTemplate` dentro del sobre `EventEnvelopeDTO` (`eventId`, `eventType`, `timestamp`, `traceId`, `data`). |
+| `com.digitalfix.workorders.config.RabbitProducerConfig` | `RabbitTemplate` con convertidor JSON (fechas ISO-8601). |
+
+Los nombres de exchanges y routing keys estan centralizados en `application.yaml` (`digitalfix.rabbitmq.*`). Si el broker no responde, la orden **igual queda guardada**: el `RabbitTemplate` reintenta (3 intentos, `spring.rabbitmq.template.retry`) y luego se registra el error en el log, sin afectar al usuario.
+
+Ejemplo de mensaje publicado en `q.cmd.email`:
+
+```json
+{
+  "eventId": "a7695a9c-58ea-4ac1-a784-e3af6882e869",
+  "eventType": "WORK_ORDER_STATUS_CHANGED",
+  "timestamp": "2026-10-18T23:20:53",
+  "data": {
+    "workOrderId": 15, "emailTo": "cliente@empresa.cl", "clientName": "Comercial Rojas SpA",
+    "orderStatus": "ASIGNADA", "subject": "DigitalFix: tu orden #15 ya tiene cuadrilla asignada",
+    "templateName": "order-notification",
+    "templateAttributes": { "status": "ASIGNADA", "serviceAddress": "Av. Providencia 1234, Providencia, Region Metropolitana", "technicianName": "Cuadrilla Norte" }
+  }
+}
+```
+
+Para pruebas manuales tambien existen los endpoints `POST /api/v1/work-orders/notify`, `/dispatch` y `/report`, que publican un evento arbitrario (requieren token).
 
 ---
 
