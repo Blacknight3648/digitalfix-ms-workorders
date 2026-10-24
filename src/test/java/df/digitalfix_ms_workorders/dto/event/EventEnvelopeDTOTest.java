@@ -66,7 +66,8 @@ class EventEnvelopeDTOTest {
         assertTrue(json.contains("\"timestamp\":\"2026-10-18T20:00:00\""));
         assertTrue(json.contains("\"traceId\":\"trace-notif-01\""));
         assertTrue(json.contains("\"workOrderId\":101"));
-        assertTrue(json.contains("\"clientEmail\":\"cliente@digitalfix.com\""));
+        // ms-notify (EmailNotificationDTO) lo recibe como "emailTo"
+        assertTrue(json.contains("\"emailTo\":\"cliente@digitalfix.com\""));
         assertTrue(json.contains("\"clientName\":\"Juan Pérez\""));
         assertTrue(json.contains("\"orderStatus\":\"ASIGNADA\""));
         assertTrue(json.contains("\"totalAmount\":125000.50"));

@@ -23,7 +23,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
 /**
  * Orden de trabajo (OT). Es la raíz del agregado: los detalles de servicio y de repuesto sólo se
@@ -171,13 +173,31 @@ public class OrdenTrabajo extends EntidadAuditable {
         return detalle;
     }
 
-    public void quitarRepuesto(Long idDetalleRepuesto) {
+    /** Devuelve el detalle quitado, para que el caso de uso pueda devolver su stock al catálogo. */
+    public DetalleOtRepuesto quitarRepuesto(Long idDetalleRepuesto) {
         verificarEditable();
         DetalleOtRepuesto detalle = detallesRepuesto.stream()
                 .filter(d -> Objects.equals(d.getIdDetalleOtRepuesto(), idDetalleRepuesto))
                 .findFirst()
                 .orElseThrow(() -> new DatoInvalidoException("El repuesto indicado no pertenece a esta orden de trabajo"));
         detallesRepuesto.remove(detalle);
+        return detalle;
+    }
+
+    /**
+     * Regla del caso: el stock del repuesto disminuye al asignar la orden. Desde ASIGNADA en
+     * adelante los repuestos de la orden ya están descontados en el catálogo; en CREADA todavía
+     * no, y CANCELADA sólo se alcanza desde CREADA, así que nunca tuvo stock descontado.
+     */
+    public boolean stockComprometido() {
+        return estado != EstadoOrden.CREADA && estado != EstadoOrden.CANCELADA;
+    }
+
+    /** Cantidad total por repuesto (el mismo repuesto puede venir de dos proveedores). */
+    public Map<Long, Integer> cantidadesPorRepuesto() {
+        Map<Long, Integer> cantidades = new TreeMap<>();
+        detallesRepuesto.forEach(d -> cantidades.merge(d.getIdRepuesto(), d.getCantidadUtilizada(), Math::addExact));
+        return cantidades;
     }
 
     /** Sólo una OT recién creada se puede borrar; después debe cancelarse o cerrarse. */
