@@ -25,6 +25,9 @@ public class EventEnvelopeDTO<T> {
 
     private String traceId;
 
+    // Agrupa todos los mensajes de una misma orden ("OT-15"), igual que la referencia del stock.
+    private String correlationId;
+
     // En el JSON viaja como "data": es el contrato que consume ms-notify (EventEnvelopeDTO#data).
     @JsonProperty("data")
     private T payload;

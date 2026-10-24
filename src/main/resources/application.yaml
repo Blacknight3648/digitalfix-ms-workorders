@@ -19,6 +19,10 @@ spring:
     username: ${RABBITMQ_USERNAME:admin}
     password: ${RABBITMQ_PASSWORD:admin123}
     virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    # Mensajes no entregados: el broker confirma cada publicación (ConfirmCallback) y devuelve la que
+    # ninguna cola recibe (ReturnsCallback con mandatory). Ambos se registran en el log (RabbitProducerConfig).
+    publisher-confirm-type: correlated
+    publisher-returns: true
     template:
       retry:
         enabled: true
@@ -52,13 +56,16 @@ server:
   port: ${PORT:${SERVER_PORT:8080}}
 
 digitalfix:
-  # Topología de RabbitMQ que usa el productor (la declara ms-notify, dueño de las colas)
+  # Topología de RabbitMQ que usa el productor (ProductorRabbitProperties). Los exchanges los declara
+  # también RabbitProducerConfig; las colas y bindings son de ms-notify, dueño de la topología.
   rabbitmq:
     exchanges:
-      direct: cmd.direct
-      topic: cmd.topic
+      direct: cmd.direct      # comandos punto a punto: ticket de despacho e informe PDF
+      topic: cmd.topic        # notificaciones al cliente, una routing key por estado de la orden
     routing-keys:
-      email: email.send
+      # Prefijo del topic: se publica email.<estado> (email.creada, email.asignada, email.cerrada...),
+      # que calza con el binding email.* de q.cmd.email.
+      notificacion-cliente: email
       dispatch: dispatch.ticket
       report: report.gen
   # ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.

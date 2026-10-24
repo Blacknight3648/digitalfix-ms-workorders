@@ -1,9 +1,8 @@
 package df.digitalfix_ms_workorders.messaging;
 
-import com.digitalfix.workorders.dto.event.DispatchTicketEvent;
-import com.digitalfix.workorders.dto.event.ReportRequestEvent;
-import com.digitalfix.workorders.dto.event.WorkOrderNotificationEvent;
-import com.digitalfix.workorders.service.WorkOrderService;
+import df.digitalfix_ms_workorders.dto.event.DispatchTicketEvent;
+import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
+import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +23,8 @@ import java.util.Map;
  *   <li>OT cerrada → informe de cierre en PDF (report.gen → q.cmd.report).</li>
  * </ul>
  * Corre después del commit: si el broker no responde, la orden ya quedó guardada y solo se
- * registra el error (el RabbitTemplate ya reintentó según spring.rabbitmq.template.retry).
+ * registra el error (el RabbitTemplate ya reintentó según spring.rabbitmq.template.retry; lo que el broker
+ * no enruta o rechaza lo registran los callbacks de RabbitProducerConfig).
  */
 @Slf4j
 @Component
@@ -33,17 +33,17 @@ public class OrdenTrabajoEventosListener {
 
     private static final String SIN_DIRECCION = "Sin dirección registrada";
 
-    private final WorkOrderService publicador;
+    private final PublicadorEventosOrden publicador;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void alConfirmar(OrdenTrabajoEvento evento) {
         try {
-            publicador.notifyOrderStatusChange(correo(evento));
+            publicador.publicarNotificacionCliente(correo(evento));
             if (evento.tipo() == OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA) {
-                publicador.dispatchCrewTicket(despacho(evento));
+                publicador.publicarTicketDespacho(despacho(evento));
             }
             if (evento.estado() == EstadoOrden.CERRADA) {
-                publicador.requestWorkOrderReport(informeCierre(evento));
+                publicador.publicarSolicitudInforme(informeCierre(evento));
             }
         } catch (AmqpException e) {
             log.error("No se pudo publicar el evento {} de la OT #{} en RabbitMQ: {}",

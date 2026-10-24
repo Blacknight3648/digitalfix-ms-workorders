@@ -3,6 +3,7 @@ package df.digitalfix_ms_workorders.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.amqp.core.ExchangeTypes;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -15,9 +16,13 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RabbitProducerConfigTest {
+public class RabbitProducerConfigTest {
 
-    private final RabbitProducerConfig config = new RabbitProducerConfig();
+    public static final ProductorRabbitProperties PROPIEDADES = new ProductorRabbitProperties(
+            new ProductorRabbitProperties.Exchanges("cmd.direct", "cmd.topic"),
+            new ProductorRabbitProperties.RoutingKeys("email", "dispatch.ticket", "report.gen"));
+
+    private final RabbitProducerConfig config = new RabbitProducerConfig(PROPIEDADES);
 
     static class SampleEvent {
         private String eventId;
@@ -83,10 +88,21 @@ class RabbitProducerConfigTest {
     }
 
     @Test
-    @DisplayName("Compatibilidad con com.digitalfix.workorders.config.RabbitProducerConfig")
-    void testCompatibilityClass() {
-        com.digitalfix.workorders.config.RabbitProducerConfig compatConfig =
-                new com.digitalfix.workorders.config.RabbitProducerConfig();
-        assertNotNull(compatConfig.jsonMessageConverter());
+    @DisplayName("Declara como beans los exchanges donde publica, durables y del tipo del caso")
+    void testExchangesDelProductor() {
+        assertEquals("cmd.direct", config.cmdDirectExchange().getName());
+        assertEquals(ExchangeTypes.DIRECT, config.cmdDirectExchange().getType());
+        assertTrue(config.cmdDirectExchange().isDurable());
+        assertEquals("cmd.topic", config.cmdTopicExchange().getName());
+        assertEquals(ExchangeTypes.TOPIC, config.cmdTopicExchange().getType());
+        assertTrue(config.cmdTopicExchange().isDurable());
+    }
+
+    @Test
+    @DisplayName("rabbitTemplate publica con mandatory para que lo no enrutable vuelva y quede en el log")
+    void testRabbitTemplateMandatory() {
+        RabbitTemplate template = config.rabbitTemplate(Mockito.mock(ConnectionFactory.class), config.jsonMessageConverter());
+
+        assertTrue(template.isMandatoryFor(new Message(new byte[0], new MessageProperties())));
     }
 }
