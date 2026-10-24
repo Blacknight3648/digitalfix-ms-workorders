@@ -22,18 +22,31 @@ import df.digitalfix_ms_workorders.repository.CuadrillaRepository;
 import df.digitalfix_ms_workorders.repository.OrdenTrabajoRepository;
 import df.digitalfix_ms_workorders.repository.ProveedorRepository;
 import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEvento;
+import df.digitalfix_ms_workorders.integration.catalogo.InventarioRepuestos;
+import df.digitalfix_ms_workorders.model.ordenTrabajo.DetalleOtRepuesto;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 // Orquesta los casos de uso de la OT. Las reglas de negocio (estados, duplicados, edición) viven
 // en el modelo OrdenTrabajo; aquí sólo se cargan las entidades y se delimita la transacción.
 // Se usa saveAndFlush para que los errores de validación/constraints salgan dentro del request.
+//
+// Stock de repuestos (regla del caso: disminuye al asignar la orden). El stock vive en ms-catalog;
+// se mueve con InventarioRepuestos después del saveAndFlush (si la orden no es válida, el catálogo
+// ni se entera) y, si aun así la transacción local termina en rollback, se compensa con el
+// movimiento inverso. Si el catálogo rechaza (p. ej. stock insuficiente), la excepción revierte
+// también la orden: no queda una OT asignada sin sus repuestos.
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -44,6 +57,7 @@ public class OrdenTrabajoService {
     private final ProveedorRepository proveedorRepository;
     private final CuadrillaRepository cuadrillaRepository;
     private final ServicioService servicioService;
+    private final InventarioRepuestos inventario;
     // Eventos de dominio: se envían a RabbitMQ después del commit (OrdenTrabajoEventosListener).
     private final ApplicationEventPublisher eventos;
 
@@ -88,8 +102,12 @@ public class OrdenTrabajoService {
     @Transactional
     public OrdenTrabajoResponse cambiarEstado(Long id, CambioEstadoRequest request) {
         OrdenTrabajo orden = obtener(id);
+        boolean stockYaDescontado = orden.stockComprometido();
         orden.cambiarEstado(request.estado());
         OrdenTrabajoResponse respuesta = guardar(orden);
+        if (!stockYaDescontado && orden.stockComprometido()) {
+            descontarStock(orden, orden.cantidadesPorRepuesto());
+        }
         eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.ESTADO_CAMBIADO, orden));
         return respuesta;
     }
@@ -124,8 +142,12 @@ public class OrdenTrabajoService {
         OrdenTrabajo orden = obtener(id);
         Cuadrilla cuadrilla = cuadrillaRepository.findByIdConBloqueo(request.idCuadrilla())
                 .orElseThrow(() -> noEncontrado("No existe una cuadrilla con id " + request.idCuadrilla()));
+        boolean stockYaDescontado = orden.stockComprometido();
         orden.asignarCuadrilla(cuadrilla);
         OrdenTrabajoResponse respuesta = guardar(orden);
+        if (!stockYaDescontado) {
+            descontarStock(orden, orden.cantidadesPorRepuesto());
+        }
         eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA, orden));
         return respuesta;
     }
@@ -146,15 +168,25 @@ public class OrdenTrabajoService {
             throw new DatoInvalidoException("El proveedor " + proveedor.getRazonSocial()
                     + " es de servicios; los repuestos deben venir de un proveedor de productos");
         }
+        inventario.verificarDisponible(request.idRepuesto());
         orden.agregarRepuesto(request.idRepuesto(), proveedor, request.cantidad());
-        return guardar(orden);
+        OrdenTrabajoResponse respuesta = guardar(orden);
+        // En una orden ya asignada el repuesto se consume de inmediato; en CREADA, al asignarla.
+        if (orden.stockComprometido()) {
+            descontarStock(orden, Map.of(request.idRepuesto(), request.cantidad()));
+        }
+        return respuesta;
     }
 
     @Transactional
     public OrdenTrabajoResponse quitarRepuesto(Long id, Long idDetalleRepuesto) {
         OrdenTrabajo orden = obtener(id);
-        orden.quitarRepuesto(idDetalleRepuesto);
-        return guardar(orden);
+        DetalleOtRepuesto quitado = orden.quitarRepuesto(idDetalleRepuesto);
+        OrdenTrabajoResponse respuesta = guardar(orden);
+        if (orden.stockComprometido()) {
+            devolverStock(orden, Map.of(quitado.getIdRepuesto(), quitado.getCantidadUtilizada()));
+        }
+        return respuesta;
     }
 
     @Transactional
@@ -165,6 +197,48 @@ public class OrdenTrabajoService {
                     "Sólo se puede eliminar una orden en estado CREADA; en otro caso debe cancelarse o cerrarse");
         }
         ordenTrabajoRepository.delete(orden);
+    }
+
+    private void descontarStock(OrdenTrabajo orden, Map<Long, Integer> cantidades) {
+        if (cantidades.isEmpty()) {
+            return;
+        }
+        String referencia = referenciaStock(orden);
+        inventario.descontar(referencia, cantidades);
+        alRevertir(() -> inventario.devolver(referencia, cantidades), "devolver", referencia);
+    }
+
+    private void devolverStock(OrdenTrabajo orden, Map<Long, Integer> cantidades) {
+        String referencia = referenciaStock(orden);
+        inventario.devolver(referencia, cantidades);
+        alRevertir(() -> inventario.descontar(referencia, cantidades), "volver a descontar", referencia);
+    }
+
+    // Compensación: el catálogo ya confirmó su movimiento en su propia base, así que si esta
+    // transacción no llega a commit se aplica el movimiento inverso. Si la compensación también
+    // falla, queda en el log para corregirla a mano (el historial MOVIMIENTO_STOCK la muestra).
+    private void alRevertir(Runnable compensacion, String accion, String referencia) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return; // fuera de una transacción no hay rollback que compensar
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_ROLLED_BACK) {
+                    return;
+                }
+                try {
+                    compensacion.run();
+                    log.warn("Rollback de {}: stock compensado en el catálogo ({})", referencia, accion);
+                } catch (RuntimeException e) {
+                    log.error("Rollback de {}: no se pudo {} el stock en el catálogo: {}", referencia, accion, e.getMessage());
+                }
+            }
+        });
+    }
+
+    private static String referenciaStock(OrdenTrabajo orden) {
+        return "OT-" + orden.getIdOrdenTrabajo();
     }
 
     private OrdenTrabajoResponse guardar(OrdenTrabajo orden) {
