@@ -202,12 +202,14 @@ Una vez iniciada la aplicacion, la documentacion tecnica interactiva y el esquem
 
 ms-workorders es el **productor** de eventos de la plataforma. Cada cambio relevante de una Orden de Trabajo se publica en RabbitMQ para que **ms-notify** lo procese sin bloquear la respuesta HTTP.
 
-| Caso de uso (endpoint) | Evento de dominio | Mensajes publicados (`cmd.direct`) |
+| Caso de uso (endpoint) | Evento de dominio | Mensajes publicados |
 |---|---|---|
-| Crear OT (`POST /api/ordenes-trabajo`) | `CREADA` | `email.send` → `q.cmd.email`: correo "registramos tu orden" |
-| Cambiar estado (`PUT /api/ordenes-trabajo/{id}/estado`) | `ESTADO_CAMBIADO` | `email.send`: correo con el nuevo estado |
-| Asignar cuadrilla (`PUT /api/ordenes-trabajo/{id}/cuadrilla`) | `CUADRILLA_ASIGNADA` | `email.send` (correo "cuadrilla asignada") y `dispatch.ticket` → `q.cmd.dispatch` (ticket de despacho) |
-| Cerrar OT (estado `CERRADA`) | `ESTADO_CAMBIADO` | ademas `report.gen` → `q.cmd.report`: informe de cierre en PDF |
+| Crear OT (`POST /api/ordenes-trabajo`) | `CREADA` | `cmd.topic` · `email.creada` → `q.cmd.email` (binding `email.*`): correo "registramos tu orden" |
+| Cambiar estado (`PUT /api/ordenes-trabajo/{id}/estado`) | `ESTADO_CAMBIADO` | `cmd.topic` · `email.<estado>` (ej. `email.en_desplazamiento`): correo con el nuevo estado |
+| Asignar cuadrilla (`PUT /api/ordenes-trabajo/{id}/cuadrilla`) | `CUADRILLA_ASIGNADA` | `cmd.topic` · `email.asignada` (correo) y `cmd.direct` · `dispatch.ticket` → `q.cmd.dispatch` (ticket de despacho) |
+| Cerrar OT (estado `CERRADA`) | `ESTADO_CAMBIADO` | `cmd.topic` · `email.cerrada` y además `cmd.direct` · `report.gen` → `q.cmd.report`: informe de cierre en PDF |
+
+Los dos tipos de exchange tienen un propósito distinto. **`cmd.direct`** lleva comandos punto a punto con routing key fija: el ticket de despacho y el informe. **`cmd.topic`** lleva las notificaciones al cliente con el estado en la routing key; el binding `email.*` las entrega todas a `q.cmd.email`, y otro consumidor podría suscribirse solo a algunas (ej. `email.cerrada`) sin cambiar este productor.
 
 **Diseno (separacion de responsabilidades):**
 
@@ -216,10 +218,12 @@ ms-workorders es el **productor** de eventos de la plataforma. Cada cambio relev
 | `service/OrdenTrabajoService` | Caso de uso de negocio. Al guardar, publica un `OrdenTrabajoEvento` con `ApplicationEventPublisher`; no conoce RabbitMQ. |
 | `messaging/OrdenTrabajoEvento` | Evento de dominio inmutable (record), armado dentro de la transaccion con los datos ya cargados. |
 | `messaging/OrdenTrabajoEventosListener` | `@TransactionalEventListener(AFTER_COMMIT)`: traduce el evento a los mensajes de cada cola. Solo publica si la transaccion se confirmo (nunca notifica un cambio que termino en rollback). |
-| `com.digitalfix.workorders.service.WorkOrderService` | Publicacion con `RabbitTemplate` dentro del sobre `EventEnvelopeDTO` (`eventId`, `eventType`, `timestamp`, `traceId`, `data`). |
-| `com.digitalfix.workorders.config.RabbitProducerConfig` | `RabbitTemplate` con convertidor JSON (fechas ISO-8601). |
+| `messaging/PublicadorEventosOrden` | Puerto de salida: lo que el listener necesita publicar (correo, ticket de despacho, informe). No expone tipos de RabbitMQ. |
+| `messaging/RabbitPublicadorEventosOrden` | Adaptador: envuelve cada evento en el sobre `EventEnvelopeDTO` (`eventId`, `eventType`, `timestamp`, `traceId`, `correlationId`, `data`) y lo publica con `RabbitTemplate`. |
+| `config/ProductorRabbitProperties` | Nombres de exchanges y routing keys (`digitalfix.rabbitmq.*` en `application.yaml`), validados al arrancar. |
+| `config/RabbitProducerConfig` | Declara como beans los exchanges donde publica (`cmd.direct`, `cmd.topic`), el convertidor JSON (fechas ISO-8601) y el `RabbitTemplate` con publisher confirms y `mandatory`: un mensaje no enrutable o rechazado por el broker queda en el log. |
 
-Los nombres de exchanges y routing keys estan centralizados en `application.yaml` (`digitalfix.rabbitmq.*`). Si el broker no responde, la orden **igual queda guardada**: el `RabbitTemplate` reintenta (3 intentos, `spring.rabbitmq.template.retry`) y luego se registra el error en el log, sin afectar al usuario.
+Los nombres de exchanges y routing keys estan centralizados en `application.yaml` (`digitalfix.rabbitmq.*`); ninguna clase los escribe a mano. Si el broker no responde, la orden **igual queda guardada**: el `RabbitTemplate` reintenta (3 intentos, `spring.rabbitmq.template.retry`) y luego se registra el error en el log, sin afectar al usuario.
 
 Ejemplo de mensaje publicado en `q.cmd.email`:
 
@@ -237,7 +241,7 @@ Ejemplo de mensaje publicado en `q.cmd.email`:
 }
 ```
 
-Para pruebas manuales tambien existen los endpoints `POST /api/v1/work-orders/notify`, `/dispatch` y `/report`, que publican un evento arbitrario (requieren token).
+Los eventos solo se publican desde los casos de uso de la orden (crear, cambiar estado, asignar cuadrilla), después del commit: no hay endpoints para publicar eventos arbitrarios. Si RabbitMQ no puede enrutar un mensaje, el `ReturnsCallback` del `RabbitTemplate` lo registra en el log.
 
 ---
 

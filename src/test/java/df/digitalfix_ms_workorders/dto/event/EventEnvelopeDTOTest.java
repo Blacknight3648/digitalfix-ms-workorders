@@ -1,6 +1,7 @@
 package df.digitalfix_ms_workorders.dto.event;
 
 import df.digitalfix_ms_workorders.config.RabbitProducerConfig;
+import df.digitalfix_ms_workorders.config.RabbitProducerConfigTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
@@ -15,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EventEnvelopeDTOTest {
 
-    private final MessageConverter messageConverter = new RabbitProducerConfig().jsonMessageConverter();
+    private final MessageConverter messageConverter = new RabbitProducerConfig(RabbitProducerConfigTest.PROPIEDADES).jsonMessageConverter();
 
     @Test
     @DisplayName("EventEnvelopeDTO debe generar eventId y timestamp por defecto")
@@ -130,38 +131,5 @@ class EventEnvelopeDTOTest {
         assertTrue(json.contains("\"reportType\":\"CERTIFICADO_TECNICO\""));
         assertTrue(json.contains("\"recipientEmail\":\"auditoria@digitalfix.com\""));
         assertTrue(json.contains("\"requestedBy\":\"supervisor1\""));
-    }
-
-    @Test
-    @DisplayName("Compatibilidad de com.digitalfix.workorders.dto.event")
-    void testComPackageCompatibility() {
-        com.digitalfix.workorders.dto.event.WorkOrderNotificationEvent notif =
-                com.digitalfix.workorders.dto.event.WorkOrderNotificationEvent.builder()
-                        .workOrderId(404L)
-                        .clientEmail("test@com.digitalfix")
-                        .build();
-
-        com.digitalfix.workorders.dto.event.DispatchTicketEvent disp =
-                com.digitalfix.workorders.dto.event.DispatchTicketEvent.builder()
-                        .workOrderId(404L)
-                        .technicianId("T-1")
-                        .build();
-
-        com.digitalfix.workorders.dto.event.ReportRequestEvent rep =
-                com.digitalfix.workorders.dto.event.ReportRequestEvent.builder()
-                        .workOrderId(404L)
-                        .reportType("INFORME_CIERRE")
-                        .build();
-
-        com.digitalfix.workorders.dto.event.EventEnvelopeDTO<com.digitalfix.workorders.dto.event.WorkOrderNotificationEvent> envelope =
-                com.digitalfix.workorders.dto.event.EventEnvelopeDTO.<com.digitalfix.workorders.dto.event.WorkOrderNotificationEvent>builder()
-                        .eventType("email.send")
-                        .payload(notif)
-                        .build();
-
-        assertNotNull(disp);
-        assertNotNull(rep);
-        assertNotNull(envelope.getEventId());
-        assertEquals(404L, envelope.getPayload().getWorkOrderId());
     }
 }
