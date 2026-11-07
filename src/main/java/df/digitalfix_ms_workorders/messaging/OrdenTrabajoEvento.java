@@ -9,7 +9,7 @@ import java.math.BigDecimal;
 
 /**
  * Evento de dominio de una orden de trabajo. Se arma dentro de la transacción (con las entidades
- * cargadas) y se publica a RabbitMQ recién después del commit (ver {@link OrdenTrabajoEventosListener}),
+ * cargadas) y se entrega a la mensajería (ms-admin-queues) recién después del commit (ver {@link OrdenTrabajoEventosListener}),
  * así nunca se notifica un cambio que terminó en rollback.
  */
 public record OrdenTrabajoEvento(

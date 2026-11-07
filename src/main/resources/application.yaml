@@ -10,25 +10,6 @@ spring:
   config:
     import: optional:file:.env[.properties]
 
-  # Conexión al clúster de RabbitMQ
-  rabbitmq:
-    # Nodos del clúster separados por coma: si se cae uno, el cliente reconecta al otro.
-    # Sin RABBITMQ_ADDRESSES se usa RABBITMQ_HOST:RABBITMQ_PORT (un solo nodo).
-    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
-    address-shuffle-mode: random  # reparte las conexiones entre los nodos
-    username: ${RABBITMQ_USERNAME:admin}
-    password: ${RABBITMQ_PASSWORD:admin123}
-    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
-    # Mensajes no entregados: el broker confirma cada publicación (ConfirmCallback) y devuelve la que
-    # ninguna cola recibe (ReturnsCallback con mandatory). Ambos se registran en el log (RabbitProducerConfig).
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      retry:
-        enabled: true
-        initial-interval: 1000ms
-        max-attempts: 3
-
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
     url: ${SPRING_DATASOURCE_URL}
@@ -60,18 +41,11 @@ server:
   port: ${PORT:${SERVER_PORT:8080}}
 
 digitalfix:
-  # Topología de RabbitMQ que usa el productor (ProductorRabbitProperties). Los exchanges los declara
-  # también RabbitProducerConfig; las colas y bindings son de ms-notify, dueño de la topología.
-  rabbitmq:
-    exchanges:
-      direct: cmd.direct      # comandos punto a punto: ticket de despacho e informe PDF
-      topic: cmd.topic        # notificaciones al cliente, una routing key por estado de la orden
-    routing-keys:
-      # Prefijo del topic: se publica email.<estado> (email.creada, email.asignada, email.cerrada...),
-      # que calza con el binding email.* de q.cmd.email.
-      notificacion-cliente: email
-      dispatch: dispatch.ticket
-      report: report.gen
+  # ms-admin-queues: dueño de toda la mensajería. Los eventos de la OT (correo, despacho, informe) se
+  # le entregan por HTTP (ColasEventosClient); este servicio no se conecta a RabbitMQ.
+  # En Docker MS_ADMIN_QUEUES_URL apunta al contenedor (http://ms-admin-queues:8084).
+  ms-admin-queues:
+    url: ${MS_ADMIN_QUEUES_URL:http://localhost:8084}
   # ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.
   # En Docker MS_USER_URL apunta al contenedor (http://ms-user-service:8082).
   ms-user:

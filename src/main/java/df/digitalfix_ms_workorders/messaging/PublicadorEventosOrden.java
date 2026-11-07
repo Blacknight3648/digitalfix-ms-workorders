@@ -5,18 +5,19 @@ import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
 import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 
 /**
- * Puerto de salida de la mensajería: lo que una orden de trabajo necesita comunicar a ms-notify.
- * Quien lo usa ({@link OrdenTrabajoEventosListener}) no conoce exchanges, routing keys ni
- * RabbitTemplate; eso queda en {@link RabbitPublicadorEventosOrden}.
+ * Puerto de salida de la mensajería: lo que una orden de trabajo necesita comunicar. Quien lo usa
+ * ({@link OrdenTrabajoEventosListener}) no conoce colas, exchanges ni routing keys; la
+ * implementación ({@code ColasEventosClient}) entrega los eventos a ms-admin-queues, que es el
+ * dueño de toda la mensajería.
  */
 public interface PublicadorEventosOrden {
 
-    /** Correo al cliente: orden creada o cambio de estado (flujo email → q.cmd.email). */
+    /** Correo al cliente: orden creada o cambio de estado (flujo email). */
     void publicarNotificacionCliente(WorkOrderNotificationEvent evento);
 
-    /** Ticket de despacho para la cuadrilla asignada (flujo dispatch → q.cmd.dispatch). */
+    /** Ticket de despacho para la cuadrilla asignada (flujo dispatch). */
     void publicarTicketDespacho(DispatchTicketEvent evento);
 
-    /** Informe o certificado PDF de la orden (flujo report → q.cmd.report). */
+    /** Informe o certificado PDF de la orden (flujo report). */
     void publicarSolicitudInforme(ReportRequestEvent evento);
 }

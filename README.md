@@ -37,7 +37,7 @@ El sistema DigitalFix responde a la necesidad de estandarizar la coordinacion y 
 * **Fuera del Alcance (Out of Scope - Delegado a otros componentes):**
   * Validacion perimetral del token JWT de Azure AD: recae tambien en el API Gateway y en `ms-digitalfix-bff`. Ademas, este servicio valida el JWT por su cuenta (defensa en profundidad), ver seccion 4.4.
   * Consumo analitico y auditoria de eventos: La emision y agregacion de eventos para reporteria y timeline es delegada a los microservicios `ms-digitalfix-report` y `ms-digitalfix-audit` mediante la infraestructura Kafka.
-  * Notificaciones en tiempo real al cliente y despacho al tecnico: Delegado a `ms-digitalfix-notify` a traves de colas RabbitMQ.
+  * Notificaciones en tiempo real al cliente y despacho al tecnico: Delegado a `ms-digitalfix-notify` a traves de las colas que administra `ms-admin-queues`.
 
 ---
 
@@ -50,7 +50,7 @@ El sistema DigitalFix responde a la necesidad de estandarizar la coordinacion y 
 * Driver de Conexion: Oracle JDBC Driver (ojdbc17 version 23.9.0.25.07) con soporte PKI/TNS
 * Gestion de Migraciones: Flyway Migration (flyway-database-oracle version 11.14.1)
 * Documentacion de API: springdoc-openapi-starter-webmvc-ui version 3.1.0 (Swagger 3)
-* Mensajeria asincrona: Spring AMQP (`RabbitTemplate` + convertidor JSON) como productor hacia RabbitMQ
+* Mensajeria asincrona: eventos entregados por HTTP a `ms-admin-queues`, dueno de la mensajeria (sin dependencia de Spring AMQP)
 * Herramienta de Construccion: Apache Maven 3.9+ (con Maven Wrapper integrado)
 * Contenedorizacion: Docker / Docker Compose con imagenes multi-etapa
 
@@ -90,8 +90,7 @@ De acuerdo con las politicas de seguridad del proyecto, ningun secreto, certific
 | `AZURE_TENANT_ID` | Tenant de Microsoft Entra ID que emite los tokens | `3fb8463e-...` |
 | `AZURE_CLIENT_ID` | Client ID de la API (audiencia `aud` del JWT) | `9494b59c-...` |
 | `MS_USER_URL` | URL de ms-user, de donde se obtiene el rol del usuario | `http://localhost:8082` |
-| `RABBITMQ_HOST` / `RABBITMQ_PORT` | Broker donde se publican los eventos de la OT | `localhost` / `5672` (en Docker: `rabbitmq`) |
-| `RABBITMQ_USERNAME` / `RABBITMQ_PASSWORD` | Credenciales del broker (desde el `.env` central) | Credencial privada de entorno |
+| `MS_ADMIN_QUEUES_URL` | Mensajeria centralizada donde se entregan los eventos de la OT | `http://localhost:8084` (en Docker: `http://ms-admin-queues:8084`) |
 
 **Puerto asignado:** `8085` en desarrollo local, unico dentro del ecosistema (ver la [tabla de puertos](https://github.com/SolgreyDuocUC/digitalfix-infrastructure#86-puertos-de-los-microservicios) en `digitalfix-infrastructure`). Dentro del contenedor la aplicacion siempre escucha en `8080`; Docker Compose la publica en `8085` en local y `docker-compose.prod.yaml` en `8081` en la EC2 de produccion.
 
@@ -198,40 +197,37 @@ Una vez iniciada la aplicacion, la documentacion tecnica interactiva y el esquem
 | DELETE | `/api/ordenes-trabajo/{id}/repuestos/{idDetalle}` | Elimina un registro de repuesto de la OT. | 200 OK |
 | DELETE | `/api/ordenes-trabajo/{id}` | Elimina la OT (solo habilitado si permanece en estado `CREADA`). | 204 No Content |
 
-### 5.7 Eventos asincronos publicados en RabbitMQ (productor)
+### 5.7 Eventos asincronos (productor, via ms-admin-queues)
 
-ms-workorders es el **productor** de eventos de la plataforma. Cada cambio relevante de una Orden de Trabajo se publica en RabbitMQ para que **ms-notify** lo procese sin bloquear la respuesta HTTP.
+ms-workorders es el **productor** de eventos de la plataforma. Cada cambio relevante de una Orden de Trabajo se entrega a **ms-admin-queues**, el dueno de toda la mensajeria, que lo publica en RabbitMQ y luego lo entrega a **ms-notify**. ms-workorders **no se conecta a RabbitMQ** ni conoce colas, exchanges o routing keys: solo decide *que* avisar y en *que flujo*.
 
-| Caso de uso (endpoint) | Evento de dominio | Mensajes publicados |
-|---|---|---|
-| Crear OT (`POST /api/ordenes-trabajo`) | `CREADA` | `cmd.topic` · `email.creada` → `q.cmd.email` (binding `email.*`): correo "registramos tu orden" |
-| Cambiar estado (`PUT /api/ordenes-trabajo/{id}/estado`) | `ESTADO_CAMBIADO` | `cmd.topic` · `email.<estado>` (ej. `email.en_desplazamiento`): correo con el nuevo estado |
-| Asignar cuadrilla (`PUT /api/ordenes-trabajo/{id}/cuadrilla`) | `CUADRILLA_ASIGNADA` | `cmd.topic` · `email.asignada` (correo) y `cmd.direct` · `dispatch.ticket` → `q.cmd.dispatch` (ticket de despacho) |
-| Cerrar OT (estado `CERRADA`) | `ESTADO_CAMBIADO` | `cmd.topic` · `email.cerrada` y además `cmd.direct` · `report.gen` → `q.cmd.report`: informe de cierre en PDF |
-
-Los dos tipos de exchange tienen un propósito distinto. **`cmd.direct`** lleva comandos punto a punto con routing key fija: el ticket de despacho y el informe. **`cmd.topic`** lleva las notificaciones al cliente con el estado en la routing key; el binding `email.*` las entrega todas a `q.cmd.email`, y otro consumidor podría suscribirse solo a algunas (ej. `email.cerrada`) sin cambiar este productor.
+| Caso de uso (endpoint) | Evento de dominio | Avisos (flujo · subtipo) | Como lo enruta ms-admin-queues |
+|---|---|---|---|
+| Crear OT (`POST /api/ordenes-trabajo`) | `CREADA` | `email` · `creada` | `cmd.topic` · `email.creada` → `q.cmd.email` |
+| Cambiar estado (`PUT /api/ordenes-trabajo/{id}/estado`) | `ESTADO_CAMBIADO` | `email` · `<estado>` | `cmd.topic` · `email.<estado>` (ej. `email.en_desplazamiento`) |
+| Asignar cuadrilla (`PUT /api/ordenes-trabajo/{id}/cuadrilla`) | `CUADRILLA_ASIGNADA` | `email` · `asignada` y `dispatch` | ... y `cmd.direct` · `dispatch.ticket` → `q.cmd.dispatch` |
+| Cerrar OT (estado `CERRADA`) | `ESTADO_CAMBIADO` | `email` · `cerrada` y `report` | ... y `cmd.direct` · `report.gen` → `q.cmd.report` |
 
 **Diseno (separacion de responsabilidades):**
 
 | Clase | Responsabilidad |
 |---|---|
-| `service/OrdenTrabajoService` | Caso de uso de negocio. Al guardar, publica un `OrdenTrabajoEvento` con `ApplicationEventPublisher`; no conoce RabbitMQ. |
+| `service/OrdenTrabajoService` | Caso de uso de negocio. Al guardar, publica un `OrdenTrabajoEvento` con `ApplicationEventPublisher`. |
 | `messaging/OrdenTrabajoEvento` | Evento de dominio inmutable (record), armado dentro de la transaccion con los datos ya cargados. |
-| `messaging/OrdenTrabajoEventosListener` | `@TransactionalEventListener(AFTER_COMMIT)`: traduce el evento a los mensajes de cada cola. Solo publica si la transaccion se confirmo (nunca notifica un cambio que termino en rollback). |
-| `messaging/PublicadorEventosOrden` | Puerto de salida: lo que el listener necesita publicar (correo, ticket de despacho, informe). No expone tipos de RabbitMQ. |
-| `messaging/RabbitPublicadorEventosOrden` | Adaptador: envuelve cada evento en el sobre `EventEnvelopeDTO` (`eventId`, `eventType`, `timestamp`, `traceId`, `correlationId`, `data`) y lo publica con `RabbitTemplate`. |
-| `config/ProductorRabbitProperties` | Nombres de exchanges y routing keys (`digitalfix.rabbitmq.*` en `application.yaml`), validados al arrancar. |
-| `config/RabbitProducerConfig` | Declara como beans los exchanges donde publica (`cmd.direct`, `cmd.topic`), el convertidor JSON (fechas ISO-8601) y el `RabbitTemplate` con publisher confirms y `mandatory`: un mensaje no enrutable o rechazado por el broker queda en el log. |
+| `messaging/OrdenTrabajoEventosListener` | Regla de negocio de los avisos (`@TransactionalEventListener(AFTER_COMMIT)`): que se comunica en cada cambio. Solo publica si la transaccion se confirmo, y cada aviso por separado: si falla el correo, igual sale el ticket de despacho. |
+| `messaging/PublicadorEventosOrden` | Puerto de salida: lo que el listener necesita comunicar (correo, ticket de despacho, informe). |
+| `integration/colas/ColasEventosClient` | Adaptador HTTP: `POST {MS_ADMIN_QUEUES_URL}/internal/v1/eventos/{flujo}` con `eventType`, `correlationId` (`OT-<id>`), `subtipo` (solo en el correo) y `data`. |
 
-Los nombres de exchanges y routing keys estan centralizados en `application.yaml` (`digitalfix.rabbitmq.*`); ninguna clase los escribe a mano. Si el broker no responde, la orden **igual queda guardada**: el `RabbitTemplate` reintenta (3 intentos, `spring.rabbitmq.template.retry`) y luego se registra el error en el log, sin afectar al usuario.
+Si la mensajeria no responde, la orden **igual queda guardada**: el error se registra en el log, sin afectar al usuario. ms-admin-queues responde 202 solo cuando el broker confirmo el mensaje y alguna cola lo recibio; si no, responde 503 y queda en el log de ambos servicios.
 
-Ejemplo de mensaje publicado en `q.cmd.email`:
+Ejemplo de publicacion del correo de cuadrilla asignada:
 
 ```json
+POST /internal/v1/eventos/email
 {
-  "eventId": "a7695a9c-58ea-4ac1-a784-e3af6882e869",
   "eventType": "WORK_ORDER_STATUS_CHANGED",
-  "timestamp": "2026-10-18T23:20:53",
+  "correlationId": "OT-15",
+  "subtipo": "asignada",
   "data": {
     "workOrderId": 15, "emailTo": "cliente@empresa.cl", "clientName": "Comercial Rojas SpA",
     "orderStatus": "ASIGNADA", "subject": "DigitalFix: tu orden #15 ya tiene cuadrilla asignada",
@@ -241,7 +237,7 @@ Ejemplo de mensaje publicado en `q.cmd.email`:
 }
 ```
 
-Los eventos solo se publican desde los casos de uso de la orden (crear, cambiar estado, asignar cuadrilla), después del commit: no hay endpoints para publicar eventos arbitrarios. Si RabbitMQ no puede enrutar un mensaje, el `ReturnsCallback` del `RabbitTemplate` lo registra en el log.
+ms-admin-queues agrega `eventId`, `timestamp` y `traceId` y publica el sobre comun. Los eventos solo se emiten desde los casos de uso de la orden (crear, cambiar estado, asignar cuadrilla), despues del commit: no hay endpoints para publicar eventos arbitrarios.
 
 ---
 
