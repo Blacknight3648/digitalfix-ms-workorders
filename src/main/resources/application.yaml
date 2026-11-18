@@ -64,12 +64,10 @@ digitalfix:
   # también RabbitProducerConfig; las colas y bindings son de ms-notify, dueño de la topología.
   rabbitmq:
     exchanges:
-      direct: cmd.direct      # comandos punto a punto: ticket de despacho e informe PDF
-      topic: cmd.topic        # notificaciones al cliente, una routing key por estado de la orden
+      direct: cmd.direct      # comandos punto a punto: correos, ticket de despacho e informe PDF
+      topic: cmd.topic
     routing-keys:
-      # Prefijo del topic: se publica email.<estado> (email.creada, email.asignada, email.cerrada...),
-      # que calza con el binding email.* de q.cmd.email.
-      notificacion-cliente: email
+      notificacion-cliente: email.send
       dispatch: dispatch.ticket
       report: report.gen
   # ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.

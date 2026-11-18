@@ -22,7 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -53,7 +53,7 @@ class OrdenTrabajoServiceStockTest {
     @Mock
     private InventarioRepuestos inventario;
     @Mock
-    private ApplicationEventPublisher eventos;
+    private RabbitTemplate rabbitTemplate;
 
     @InjectMocks
     private OrdenTrabajoService service;
@@ -158,6 +158,6 @@ class OrdenTrabajoServiceStockTest {
         assertThatThrownBy(() -> service.asignarCuadrilla(ID_ORDEN, new AsignarCuadrillaRequest(7L)))
                 .isInstanceOf(OperacionNoPermitidaException.class)
                 .hasMessageContaining("Stock insuficiente");
-        verify(eventos, never()).publishEvent(any());
+        verifyNoInteractions(rabbitTemplate);
     }
 }

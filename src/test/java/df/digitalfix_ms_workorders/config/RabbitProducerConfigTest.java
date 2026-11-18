@@ -20,7 +20,7 @@ public class RabbitProducerConfigTest {
 
     public static final ProductorRabbitProperties PROPIEDADES = new ProductorRabbitProperties(
             new ProductorRabbitProperties.Exchanges("cmd.direct", "cmd.topic"),
-            new ProductorRabbitProperties.RoutingKeys("email", "dispatch.ticket", "report.gen"));
+            new ProductorRabbitProperties.RoutingKeys("email.send", "dispatch.ticket", "report.gen"));
 
     private final RabbitProducerConfig config = new RabbitProducerConfig(PROPIEDADES);
 

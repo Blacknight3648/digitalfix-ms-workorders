@@ -21,12 +21,17 @@ import df.digitalfix_ms_workorders.repository.ClienteRepository;
 import df.digitalfix_ms_workorders.repository.CuadrillaRepository;
 import df.digitalfix_ms_workorders.repository.OrdenTrabajoRepository;
 import df.digitalfix_ms_workorders.repository.ProveedorRepository;
-import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEvento;
+import df.digitalfix_ms_workorders.dto.event.DispatchTicketEvent;
+import df.digitalfix_ms_workorders.dto.event.EventEnvelopeDTO;
+import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
+import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.integration.catalogo.InventarioRepuestos;
 import df.digitalfix_ms_workorders.model.ordenTrabajo.DetalleOtRepuesto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +39,11 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // Orquesta los casos de uso de la OT. Las reglas de negocio (estados, duplicados, edición) viven
 // en el modelo OrdenTrabajo; aquí sólo se cargan las entidades y se delimita la transacción.
@@ -52,14 +60,24 @@ import java.util.Map;
 @Transactional(readOnly = true)
 public class OrdenTrabajoService {
 
+    private static final String EXCHANGE_DIRECT = "cmd.direct";
+    private static final String ROUTING_KEY_EMAIL = "email.send";
+    private static final String ROUTING_KEY_DISPATCH = "dispatch.ticket";
+    private static final String ROUTING_KEY_REPORT = "report.gen";
+
+    private static final String EVENT_TYPE_STATUS_CHANGED = "WORK_ORDER_STATUS_CHANGED";
+    private static final String EVENT_TYPE_DISPATCH = "CREW_DISPATCH_ASSIGNED";
+    private static final String EVENT_TYPE_REPORT = "WORK_ORDER_REPORT_REQUESTED";
+
+    private static final String SIN_DIRECCION = "Sin dirección registrada";
+
     private final OrdenTrabajoRepository ordenTrabajoRepository;
     private final ClienteRepository clienteRepository;
     private final ProveedorRepository proveedorRepository;
     private final CuadrillaRepository cuadrillaRepository;
     private final ServicioService servicioService;
     private final InventarioRepuestos inventario;
-    // Eventos de dominio: se envían a RabbitMQ después del commit (OrdenTrabajoEventosListener).
-    private final ApplicationEventPublisher eventos;
+    private final RabbitTemplate rabbitTemplate;
 
     @Transactional
     public OrdenTrabajoResponse crear(OrdenTrabajoRequest request) {
@@ -70,7 +88,7 @@ public class OrdenTrabajoService {
             request.servicios().forEach(s -> agregarServicioDelCatalogo(orden, s));
         }
         OrdenTrabajo guardada = ordenTrabajoRepository.saveAndFlush(orden);
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CREADA, guardada));
+        publicarNotificacionEmail(guardada, "DigitalFix: registramos tu orden de trabajo #" + guardada.getIdOrdenTrabajo());
         return OrdenTrabajoResponse.from(guardada);
     }
 
@@ -108,7 +126,10 @@ public class OrdenTrabajoService {
         if (!stockYaDescontado && orden.stockComprometido()) {
             descontarStock(orden, orden.cantidadesPorRepuesto());
         }
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.ESTADO_CAMBIADO, orden));
+        publicarNotificacionEmail(orden, "DigitalFix: tu orden #" + orden.getIdOrdenTrabajo() + " cambió a " + orden.getEstado());
+        if (orden.getEstado() == EstadoOrden.CERRADA) {
+            publicarSolicitudInforme(orden);
+        }
         return respuesta;
     }
 
@@ -148,7 +169,8 @@ public class OrdenTrabajoService {
         if (!stockYaDescontado) {
             descontarStock(orden, orden.cantidadesPorRepuesto());
         }
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA, orden));
+        publicarNotificacionEmail(orden, "DigitalFix: tu orden #" + orden.getIdOrdenTrabajo() + " ya tiene cuadrilla asignada");
+        publicarTicketDespacho(orden);
         return respuesta;
     }
 
@@ -235,6 +257,86 @@ public class OrdenTrabajoService {
                 }
             }
         });
+    }
+
+    private void publicarNotificacionEmail(OrdenTrabajo orden, String asunto) {
+        Cliente cliente = orden.getCliente();
+        String direccion = cliente.getDireccion() != null ? cliente.getDireccion().textoCompleto() : SIN_DIRECCION;
+        Map<String, Object> atributos = new HashMap<>();
+        atributos.put("status", orden.getEstado().name());
+        atributos.put("serviceAddress", direccion);
+        if (orden.getCuadrilla() != null) {
+            atributos.put("technicianName", "Cuadrilla " + orden.getCuadrilla().getNombre());
+        }
+
+        WorkOrderNotificationEvent payload = WorkOrderNotificationEvent.builder()
+                .workOrderId(orden.getIdOrdenTrabajo())
+                .clientEmail(cliente.getEmail())
+                .clientName(cliente.getNombreCompleto())
+                .orderStatus(orden.getEstado().name())
+                .description(orden.getObservaciones())
+                .totalAmount(orden.getTotalManoObra())
+                .subject(asunto)
+                .templateAttributes(atributos)
+                .build();
+
+        publicarEnvelope(ROUTING_KEY_EMAIL, EVENT_TYPE_STATUS_CHANGED, orden.getIdOrdenTrabajo(), payload);
+    }
+
+    private void publicarTicketDespacho(OrdenTrabajo orden) {
+        Cliente cliente = orden.getCliente();
+        Cuadrilla cuadrilla = orden.getCuadrilla();
+        String direccion = cliente.getDireccion() != null ? cliente.getDireccion().textoCompleto() : SIN_DIRECCION;
+
+        DispatchTicketEvent payload = DispatchTicketEvent.builder()
+                .workOrderId(orden.getIdOrdenTrabajo())
+                .technicianId(cuadrilla != null ? String.valueOf(cuadrilla.getIdTecnicoLider()) : null)
+                .crewId(cuadrilla != null ? String.valueOf(cuadrilla.getIdCuadrilla()) : null)
+                .serviceAddress(direccion)
+                .clientPhone(cliente.getTelefono())
+                .scheduledDate(LocalDateTime.now())
+                .serviceDescription(orden.getObservaciones() != null
+                        ? orden.getObservaciones()
+                        : "Orden de trabajo #" + orden.getIdOrdenTrabajo())
+                .build();
+
+        publicarEnvelope(ROUTING_KEY_DISPATCH, EVENT_TYPE_DISPATCH, orden.getIdOrdenTrabajo(), payload);
+    }
+
+    private void publicarSolicitudInforme(OrdenTrabajo orden) {
+        ReportRequestEvent payload = ReportRequestEvent.builder()
+                .workOrderId(orden.getIdOrdenTrabajo())
+                .reportType("INFORME_CIERRE")
+                .recipientEmail(orden.getCliente().getEmail())
+                .requestedBy("ms-workorders")
+                .build();
+
+        publicarEnvelope(ROUTING_KEY_REPORT, EVENT_TYPE_REPORT, orden.getIdOrdenTrabajo(), payload);
+    }
+
+    private <T> void publicarEnvelope(String routingKey, String eventType, Long idOrden, T payload) {
+        EventEnvelopeDTO<T> envelope = EventEnvelopeDTO.<T>builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType(eventType)
+                .timestamp(LocalDateTime.now())
+                .traceId("TRACE-" + UUID.randomUUID().toString().substring(0, 8))
+                .correlationId("OT-" + idOrden)
+                .payload(payload)
+                .build();
+
+        try {
+            rabbitTemplate.convertAndSend(EXCHANGE_DIRECT, routingKey, envelope, mensaje -> {
+                mensaje.getMessageProperties().setMessageId(envelope.getEventId());
+                mensaje.getMessageProperties().setCorrelationId(envelope.getCorrelationId());
+                return mensaje;
+            }, new CorrelationData(envelope.getEventId()));
+
+            log.info("Evento {} de {} publicado en {} con routingKey {} (eventId {})",
+                    eventType, envelope.getCorrelationId(), EXCHANGE_DIRECT, routingKey, envelope.getEventId());
+        } catch (AmqpException e) {
+            log.error("No se pudo publicar el evento {} de la OT #{} en RabbitMQ: {}",
+                    eventType, idOrden, e.getMessage());
+        }
     }
 
     private static String referenciaStock(OrdenTrabajo orden) {

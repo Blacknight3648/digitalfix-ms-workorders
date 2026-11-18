@@ -17,8 +17,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Configuración de mensajería del productor. Toda la infraestructura de RabbitMQ de ms-workorders
- * está aquí; los servicios de negocio no la conocen (publican eventos de dominio y
- * {@code RabbitPublicadorEventosOrden} los traduce a mensajes).
+ * está aquí; las colas y bindings son de ms-notify, el dueño de la topología.
  * <ul>
  *   <li><b>Exchanges</b>: se declaran los dos donde publica. La declaración es idempotente y usa los
  *       mismos parámetros que ms-notify, así el productor no depende de que el consumidor haya

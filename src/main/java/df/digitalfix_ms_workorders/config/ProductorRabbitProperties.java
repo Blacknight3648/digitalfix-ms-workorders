@@ -3,7 +3,6 @@ package df.digitalfix_ms_workorders.config;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -27,13 +26,10 @@ public record ProductorRabbitProperties(
     }
 
     /**
-     * Routing keys por caso de uso. {@code notificacionCliente} es un prefijo: se publica
-     * {@code <prefijo>.<estado>} en el topic (ej. email.asignada → binding email.* → q.cmd.email).
-     * Por eso no admite puntos: el patrón email.* calza con exactamente una palabra después.
+     * Routing keys por caso de uso en {@code cmd.direct}.
      */
     public record RoutingKeys(
-            @NotBlank @Pattern(regexp = "^[a-z]+$", message = "El prefijo de notificación al cliente es una sola palabra en minúsculas")
-            String notificacionCliente,
+            @NotBlank String notificacionCliente,
             @NotBlank String dispatch,
             @NotBlank String report
     ) {
