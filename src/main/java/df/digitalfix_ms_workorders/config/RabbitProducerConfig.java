@@ -4,25 +4,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.DirectExchange;
-import org.springframework.amqp.core.ExchangeBuilder;
-import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Configuración de mensajería del productor. Toda la infraestructura de RabbitMQ de ms-workorders
- * está aquí; las colas y bindings son de ms-notify, el dueño de la topología.
+ * Configuración de mensajería del productor puro (sin declarar exchanges, colas ni bindings;
+ * la topología AMQP es responsabilidad exclusiva de {@code ms-admin-queues}).
  * <ul>
- *   <li><b>Exchanges</b>: se declaran los dos donde publica. La declaración es idempotente y usa los
- *       mismos parámetros que ms-notify, así el productor no depende de que el consumidor haya
- *       arrancado primero (publicar en un exchange inexistente cierra el canal y pierde el mensaje).
- *       Las colas y bindings son de ms-notify, el dueño de la topología.</li>
  *   <li><b>Mensajes no entregados</b>: con {@code mandatory} el broker devuelve lo que ninguna cola
  *       recibió (ReturnsCallback) y con publisher confirms avisa si no pudo aceptarlo
  *       (ConfirmCallback). Ambos casos quedan en el log con su eventId.</li>
@@ -30,26 +22,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Slf4j
 @Configuration
-@EnableConfigurationProperties(ProductorRabbitProperties.class)
 public class RabbitProducerConfig {
-
-    private final ProductorRabbitProperties propiedades;
-
-    public RabbitProducerConfig(ProductorRabbitProperties propiedades) {
-        this.propiedades = propiedades;
-    }
-
-    /** cmd.direct: comandos por routing key exacta (email.send, dispatch.ticket, report.gen). */
-    @Bean
-    public DirectExchange cmdDirectExchange() {
-        return ExchangeBuilder.directExchange(propiedades.exchanges().direct()).durable(true).build();
-    }
-
-    /** cmd.topic: los mismos comandos por patrón (email.*, dispatch.#, report.*). */
-    @Bean
-    public TopicExchange cmdTopicExchange() {
-        return ExchangeBuilder.topicExchange(propiedades.exchanges().topic()).durable(true).build();
-    }
 
     /** JSON con fechas ISO-8601 (no timestamps numéricos), que es lo que espera ms-notify. */
     @Bean

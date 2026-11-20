@@ -3,7 +3,6 @@ package df.digitalfix_ms_workorders.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.springframework.amqp.core.ExchangeTypes;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -18,11 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class RabbitProducerConfigTest {
 
-    public static final ProductorRabbitProperties PROPIEDADES = new ProductorRabbitProperties(
-            new ProductorRabbitProperties.Exchanges("cmd.direct", "cmd.topic"),
-            new ProductorRabbitProperties.RoutingKeys("email.send", "dispatch.ticket", "report.gen"));
-
-    private final RabbitProducerConfig config = new RabbitProducerConfig(PROPIEDADES);
+    private final RabbitProducerConfig config = new RabbitProducerConfig();
 
     static class SampleEvent {
         private String eventId;
@@ -85,17 +80,6 @@ public class RabbitProducerConfigTest {
         assertNotNull(template, "El RabbitTemplate no debe ser nulo");
         assertSame(connectionFactory, template.getConnectionFactory(), "La ConnectionFactory debe ser la provista");
         assertSame(converter, template.getMessageConverter(), "El MessageConverter debe ser el jsonMessageConverter");
-    }
-
-    @Test
-    @DisplayName("Declara como beans los exchanges donde publica, durables y del tipo del caso")
-    void testExchangesDelProductor() {
-        assertEquals("cmd.direct", config.cmdDirectExchange().getName());
-        assertEquals(ExchangeTypes.DIRECT, config.cmdDirectExchange().getType());
-        assertTrue(config.cmdDirectExchange().isDurable());
-        assertEquals("cmd.topic", config.cmdTopicExchange().getName());
-        assertEquals(ExchangeTypes.TOPIC, config.cmdTopicExchange().getType());
-        assertTrue(config.cmdTopicExchange().isDurable());
     }
 
     @Test

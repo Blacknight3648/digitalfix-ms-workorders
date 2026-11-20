@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EventEnvelopeDTOTest {
 
-    private final MessageConverter messageConverter = new RabbitProducerConfig(RabbitProducerConfigTest.PROPIEDADES).jsonMessageConverter();
+    private final MessageConverter messageConverter = new RabbitProducerConfig().jsonMessageConverter();
 
     @Test
     @DisplayName("EventEnvelopeDTO debe generar eventId y timestamp por defecto")
