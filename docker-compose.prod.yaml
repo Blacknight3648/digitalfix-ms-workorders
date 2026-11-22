@@ -38,6 +38,9 @@ services:
 
       - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
 
+      # Clave compartida con el backend del Portal Cliente (/api/externo/**). Vacia = API externa cerrada.
+      - PORTAL_API_KEY=${PORTAL_API_KEY:-}
+
       # ms-user en la red digitalfix-net (nombre del servicio/contenedor)
 
       - MS_USER_URL=${MS_USER_URL:-http://ms-user-service:8082}
