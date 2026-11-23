@@ -8,7 +8,11 @@ spring:
   # setear las variables a mano en cada PC. En Docker/EC2 no hace falta: las
   # variables llegan por "environment"/"env_file" y tienen prioridad.
   config:
-    import: optional:file:.env[.properties]
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../digitalfix-infrastructure/.env[.properties]
+      - optional:file:digitalfix-infrastructure/.env[.properties]
+      - optional:file:../.env[.properties]
 
   # Conexión al clúster de RabbitMQ
   rabbitmq:
@@ -30,11 +34,15 @@ spring:
         max-attempts: 3
 
   datasource:
-    # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    # Definida en .env, ej: jdbc:oracle:thin:@<alias>_low?TNS_ADMIN=./wallet
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:oracle:thin:@clx44joct2djmlz9_low?TNS_ADMIN=./wallet}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:ADMIN}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:Anastasia1106.}}
     driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:3}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:1}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:30000}
 
   jpa:
     hibernate:
@@ -57,7 +65,7 @@ spring:
 # Puerto local configurable desde .env (SERVER_PORT=8085). En Docker queda en 8080
 # y docker-compose lo publica como 8085 en el host (8081 en la EC2 de produccion).
 server:
-  port: ${PORT:${SERVER_PORT:8080}}
+  port: ${PORT:${SERVER_PORT:8085}}
 
 digitalfix:
   # Topología de RabbitMQ que usa el productor (ProductorRabbitProperties). Los exchanges los declara
