@@ -8,6 +8,7 @@ import df.digitalfix_ms_workorders.messaging.PublicadorEventosOrden;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,7 @@ import java.util.Objects;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "digitalfix.messaging.transport", havingValue = "http", matchIfMissing = true)
 public class ColasEventosClient implements PublicadorEventosOrden {
 
     static final String RUTA = "/internal/v1/eventos/{flujo}";
