@@ -8,7 +8,11 @@ spring:
   # setear las variables a mano en cada PC. En Docker/EC2 no hace falta: las
   # variables llegan por "environment"/"env_file" y tienen prioridad.
   config:
-    import: optional:file:.env[.properties]
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../digitalfix-infrastructure/.env[.properties]
+      - optional:file:digitalfix-infrastructure/.env[.properties]
+      - optional:file:../.env[.properties]
 
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
