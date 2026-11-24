@@ -13,13 +13,39 @@ spring:
       - optional:file:../digitalfix-infrastructure/.env[.properties]
       - optional:file:digitalfix-infrastructure/.env[.properties]
       - optional:file:../.env[.properties]
+<<<<<<< HEAD
+
+  # Conexión al clúster de RabbitMQ
+  rabbitmq:
+    # Nodos del clúster separados por coma: si se cae uno, el cliente reconecta al otro.
+    # Sin RABBITMQ_ADDRESSES se usa RABBITMQ_HOST:RABBITMQ_PORT (un solo nodo).
+    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
+    address-shuffle-mode: random  # reparte las conexiones entre los nodos
+    username: ${RABBITMQ_USERNAME:admin}
+    password: ${RABBITMQ_PASSWORD:admin123}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    # Mensajes no entregados: el broker confirma cada publicación (ConfirmCallback) y devuelve la que
+    # ninguna cola recibe (ReturnsCallback con mandatory). Ambos se registran en el log (RabbitProducerConfig).
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000ms
+        max-attempts: 3
+=======
+>>>>>>> 5e15bed8f22f8759163917cb18e4cab044920c6e
 
   datasource:
-    # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    # Definida en .env, ej: jdbc:oracle:thin:@<alias>_low?TNS_ADMIN=./wallet
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:oracle:thin:@clx44joct2djmlz9_low?TNS_ADMIN=./wallet}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:ADMIN}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:Anastasia1106.}}
     driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:3}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:1}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:30000}
 
   jpa:
     hibernate:
@@ -45,7 +71,7 @@ spring:
 # Puerto local configurable desde .env (SERVER_PORT=8085). En Docker queda en 8080
 # y docker-compose lo publica como 8085 en el host (8081 en la EC2 de produccion).
 server:
-  port: ${PORT:${SERVER_PORT:8080}}
+  port: ${PORT:${SERVER_PORT:8085}}
 
 kafka:
   topics:
