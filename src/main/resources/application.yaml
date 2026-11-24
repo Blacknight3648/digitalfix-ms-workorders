@@ -13,7 +13,6 @@ spring:
       - optional:file:../digitalfix-infrastructure/.env[.properties]
       - optional:file:digitalfix-infrastructure/.env[.properties]
       - optional:file:../.env[.properties]
-<<<<<<< HEAD
 
   # Conexión al clúster de RabbitMQ
   rabbitmq:
@@ -33,14 +32,12 @@ spring:
         enabled: true
         initial-interval: 1000ms
         max-attempts: 3
-=======
->>>>>>> 5e15bed8f22f8759163917cb18e4cab044920c6e
 
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_low?TNS_ADMIN=./wallet
     url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:oracle:thin:@clx44joct2djmlz9_low?TNS_ADMIN=./wallet}}
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:ADMIN}}
-    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:Anastasia1106.}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:GCAm7DF1520.}}
     driver-class-name: oracle.jdbc.OracleDriver
     hikari:
       maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:3}
