@@ -16,6 +16,8 @@ import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
+import org.springframework.core.annotation.Order;
 
 import java.util.List;
 import java.util.Set;
@@ -53,7 +55,31 @@ public class SecurityConfig {
     @Value("${AZURE_CLIENT_ID}")
     private String clientId;
 
+    // Clave compartida con el backend del Portal Cliente. Vacía = API externa cerrada.
+    @Value("${PORTAL_API_KEY:}")
+    private String portalApiKey;
+
+    // API externa para el Portal Cliente (/api/externo/**): cadena propia, evaluada antes que la de
+    // Entra ID. Autentica con X-Portal-Api-Key (PortalApiKeyFilter) en vez de un JWT del tenant y
+    // solo expone lo que el portal necesita: servicios activos, ubicaciones, crear una OT y su
+    // seguimiento. El resto de la API sigue exigiendo un usuario de Entra ID con su rol.
     @Bean
+    @Order(1)
+    public SecurityFilterChain portalExternoSecurityFilterChain(HttpSecurity http) throws Exception {
+        return http
+                .securityMatcher("/api/externo/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .addFilterBefore(new PortalApiKeyFilter(portalApiKey), AnonymousAuthenticationFilter.class)
+                .authorizeHttpRequests(auth -> auth.anyRequest().hasAuthority(PortalApiKeyFilter.ROL))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(jsonSecurityErrorHandler)
+                        .accessDeniedHandler(jsonSecurityErrorHandler))
+                .build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)

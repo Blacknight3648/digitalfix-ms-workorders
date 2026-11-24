@@ -14,6 +14,7 @@ import df.digitalfix_ms_workorders.model.proveedores.Proveedor;
 import df.digitalfix_ms_workorders.repository.CuadrillaRepository;
 import df.digitalfix_ms_workorders.repository.OrdenTrabajoRepository;
 import df.digitalfix_ms_workorders.repository.ProveedorRepository;
+import df.digitalfix_ms_workorders.service.impl.OrdenTrabajoServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,7 +57,7 @@ class OrdenTrabajoServiceStockTest {
     private ApplicationEventPublisher eventos;
 
     @InjectMocks
-    private OrdenTrabajoService service;
+    private OrdenTrabajoServiceImpl service;
 
     private OrdenTrabajo orden;
     private Proveedor proveedorA;

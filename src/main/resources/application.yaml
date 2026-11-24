@@ -13,6 +13,7 @@ spring:
       - optional:file:../digitalfix-infrastructure/.env[.properties]
       - optional:file:digitalfix-infrastructure/.env[.properties]
       - optional:file:../.env[.properties]
+<<<<<<< HEAD
 
   # Conexión al clúster de RabbitMQ
   rabbitmq:
@@ -32,6 +33,8 @@ spring:
         enabled: true
         initial-interval: 1000ms
         max-attempts: 3
+=======
+>>>>>>> 5e15bed8f22f8759163917cb18e4cab044920c6e
 
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_low?TNS_ADMIN=./wallet
@@ -68,18 +71,11 @@ server:
   port: ${PORT:${SERVER_PORT:8085}}
 
 digitalfix:
-  # Topología de RabbitMQ que usa el productor (ProductorRabbitProperties). Los exchanges los declara
-  # también RabbitProducerConfig; las colas y bindings son de ms-notify, dueño de la topología.
-  rabbitmq:
-    exchanges:
-      direct: cmd.direct      # comandos punto a punto: ticket de despacho e informe PDF
-      topic: cmd.topic        # notificaciones al cliente, una routing key por estado de la orden
-    routing-keys:
-      # Prefijo del topic: se publica email.<estado> (email.creada, email.asignada, email.cerrada...),
-      # que calza con el binding email.* de q.cmd.email.
-      notificacion-cliente: email
-      dispatch: dispatch.ticket
-      report: report.gen
+  # ms-admin-queues: dueño de toda la mensajería. Los eventos de la OT (correo, despacho, informe) se
+  # le entregan por HTTP (ColasEventosClient); este servicio no se conecta a RabbitMQ.
+  # En Docker MS_ADMIN_QUEUES_URL apunta al contenedor (http://ms-admin-queues:8084).
+  ms-admin-queues:
+    url: ${MS_ADMIN_QUEUES_URL:http://localhost:8084}
   # ms-user: fuente del rol de negocio (USUARIOS/ROLES) para la autorizacion por rol.
   # En Docker MS_USER_URL apunta al contenedor (http://ms-user-service:8082).
   ms-user:

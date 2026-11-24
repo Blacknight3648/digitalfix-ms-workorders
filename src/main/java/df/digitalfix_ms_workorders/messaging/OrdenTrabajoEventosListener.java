@@ -6,7 +6,6 @@ import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.AmqpException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -16,15 +15,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Traduce los eventos de dominio de la OT a mensajes de RabbitMQ para ms-notify:
+ * Regla de negocio de las comunicaciones de una OT: qué se avisa y a quién en cada cambio.
  * <ul>
- *   <li>OT creada o cambio de estado → correo al cliente (email.send → q.cmd.email).</li>
- *   <li>Cuadrilla asignada → correo + ticket de despacho (dispatch.ticket → q.cmd.dispatch).</li>
- *   <li>OT cerrada → informe de cierre en PDF (report.gen → q.cmd.report).</li>
+ *   <li>OT creada o cambio de estado → correo al cliente (flujo email).</li>
+ *   <li>Cuadrilla asignada → correo + ticket de despacho (flujo dispatch).</li>
+ *   <li>OT cerrada → informe de cierre en PDF (flujo report).</li>
  * </ul>
- * Corre después del commit: si el broker no responde, la orden ya quedó guardada y solo se
- * registra el error (el RabbitTemplate ya reintentó según spring.rabbitmq.template.retry; lo que el broker
- * no enruta o rechaza lo registran los callbacks de RabbitProducerConfig).
+ * Cómo viajan los mensajes no es asunto de este servicio: {@link PublicadorEventosOrden} los
+ * entrega a ms-admin-queues, dueño de la mensajería.
+ * <p>
+ * Corre después del commit: si la mensajería no responde, la orden ya quedó guardada y solo se
+ * registra el error. Cada aviso se publica por separado, así una falla en el correo no impide el
+ * ticket de despacho ni el informe.
  */
 @Slf4j
 @Component
@@ -37,17 +39,21 @@ public class OrdenTrabajoEventosListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void alConfirmar(OrdenTrabajoEvento evento) {
+        publicarSinInterrumpir(evento, "correo al cliente", () -> publicador.publicarNotificacionCliente(correo(evento)));
+        if (evento.tipo() == OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA) {
+            publicarSinInterrumpir(evento, "ticket de despacho", () -> publicador.publicarTicketDespacho(despacho(evento)));
+        }
+        if (evento.estado() == EstadoOrden.CERRADA) {
+            publicarSinInterrumpir(evento, "informe de cierre", () -> publicador.publicarSolicitudInforme(informeCierre(evento)));
+        }
+    }
+
+    private void publicarSinInterrumpir(OrdenTrabajoEvento evento, String aviso, Runnable publicacion) {
         try {
-            publicador.publicarNotificacionCliente(correo(evento));
-            if (evento.tipo() == OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA) {
-                publicador.publicarTicketDespacho(despacho(evento));
-            }
-            if (evento.estado() == EstadoOrden.CERRADA) {
-                publicador.publicarSolicitudInforme(informeCierre(evento));
-            }
-        } catch (AmqpException e) {
-            log.error("No se pudo publicar el evento {} de la OT #{} en RabbitMQ: {}",
-                    evento.tipo(), evento.idOrden(), e.getMessage());
+            publicacion.run();
+        } catch (PublicacionEventoException e) {
+            log.error("No se pudo publicar el {} del evento {} de la OT #{}: {}",
+                    aviso, evento.tipo(), evento.idOrden(), e.getMessage());
         }
     }
 
