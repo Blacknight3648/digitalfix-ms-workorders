@@ -4,14 +4,13 @@ import df.digitalfix_ms_workorders.dto.CambioEstadoRequest;
 import df.digitalfix_ms_workorders.dto.Cuadrilla.AsignarCuadrillaRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.event.DispatchTicketEvent;
-import df.digitalfix_ms_workorders.dto.event.EventEnvelopeDTO;
 import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
 import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import df.digitalfix_ms_workorders.integration.catalogo.InventarioRepuestos;
 import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEvento;
 import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEventosListener;
-import df.digitalfix_ms_workorders.messaging.RabbitPublicadorEventosOrden;
+import df.digitalfix_ms_workorders.messaging.PublicadorEventosOrden;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;
 import df.digitalfix_ms_workorders.model.cuadrilla.Cuadrilla;
 import df.digitalfix_ms_workorders.model.ordenTrabajo.OrdenTrabajo;
@@ -30,9 +29,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -42,7 +38,6 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -66,7 +61,7 @@ class OrdenTrabajoServiceEventTest {
     @Mock
     private ApplicationEventPublisher eventos;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private PublicadorEventosOrden publicador;
 
     @InjectMocks
     private OrdenTrabajoServiceImpl service;
@@ -97,8 +92,7 @@ class OrdenTrabajoServiceEventTest {
         when(cuadrillaRepository.findByIdConBloqueo(7L))
                 .thenReturn(Optional.of(new Cuadrilla("Cuadrilla Sur", 70L, Set.of(77L))));
 
-        OrdenTrabajoEventosListener listener = new OrdenTrabajoEventosListener(
-                new RabbitPublicadorEventosOrden(rabbitTemplate));
+        OrdenTrabajoEventosListener listener = new OrdenTrabajoEventosListener(publicador);
         doAnswer(inv -> {
             Object ev = inv.getArgument(0);
             if (ev instanceof OrdenTrabajoEvento ote) {
@@ -108,71 +102,52 @@ class OrdenTrabajoServiceEventTest {
         }).when(eventos).publishEvent(any(Object.class));
     }
 
-    private static void assertEnvelopeComun(EventEnvelopeDTO<?> envelope, String expectedType) {
-        assertNotNull(envelope.getEventId());
-        assertFalse(envelope.getEventId().isBlank());
-        assertNotNull(envelope.getTraceId());
-        assertTrue(envelope.getTraceId().startsWith("TRACE-"));
-        assertNotNull(envelope.getTimestamp());
-        assertEquals(expectedType, envelope.getEventType());
-        assertEquals("OT-" + ID_ORDEN, envelope.getCorrelationId());
-    }
-
     @Test
-    @DisplayName("crear() publica EventEnvelopeDTO hacia cmd.direct con routing key email.send")
-    void crearPublicaEmailSendEnCmdDirect() {
+    @DisplayName("crear() publica notificación al cliente vía PublicadorEventosOrden")
+    void crearPublicaNotificacionCliente() {
         service.crear(new OrdenTrabajoRequest(1L, "Revisión tablero", List.of()));
 
-        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-        verify(rabbitTemplate).convertAndSend(eq("cmd.direct"), eq("email.send"), captor.capture(),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
+        ArgumentCaptor<WorkOrderNotificationEvent> captor = ArgumentCaptor.forClass(WorkOrderNotificationEvent.class);
+        verify(publicador).publicarNotificacionCliente(captor.capture());
 
-        EventEnvelopeDTO<?> envelope = assertInstanceOf(EventEnvelopeDTO.class, captor.getValue());
-        assertEnvelopeComun(envelope, "WORK_ORDER_STATUS_CHANGED");
-        WorkOrderNotificationEvent payload = assertInstanceOf(WorkOrderNotificationEvent.class, envelope.getPayload());
+        WorkOrderNotificationEvent payload = captor.getValue();
         assertEquals(ID_ORDEN, payload.getWorkOrderId());
         assertEquals("cliente@digitalfix.com", payload.getClientEmail());
         assertEquals("CREADA", payload.getOrderStatus());
+        verifyNoMoreInteractions(publicador);
     }
 
     @Test
-    @DisplayName("asignarCuadrilla() publica email.send y dispatch.ticket hacia cmd.direct")
-    void asignarCuadrillaPublicaEmailYDispatchEnCmdDirect() {
+    @DisplayName("asignarCuadrilla() publica notificación y ticket de despacho vía PublicadorEventosOrden")
+    void asignarCuadrillaPublicaNotificacionYDespacho() {
         service.asignarCuadrilla(ID_ORDEN, new AsignarCuadrillaRequest(7L));
 
-        ArgumentCaptor<Object> emailCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(rabbitTemplate).convertAndSend(eq("cmd.direct"), eq("email.send"), emailCaptor.capture(),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
-        assertEnvelopeComun(assertInstanceOf(EventEnvelopeDTO.class, emailCaptor.getValue()), "WORK_ORDER_STATUS_CHANGED");
+        ArgumentCaptor<WorkOrderNotificationEvent> emailCaptor = ArgumentCaptor.forClass(WorkOrderNotificationEvent.class);
+        verify(publicador).publicarNotificacionCliente(emailCaptor.capture());
+        assertEquals(ID_ORDEN, emailCaptor.getValue().getWorkOrderId());
 
-        ArgumentCaptor<Object> dispatchCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(rabbitTemplate).convertAndSend(eq("cmd.direct"), eq("dispatch.ticket"), dispatchCaptor.capture(),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
-        EventEnvelopeDTO<?> dispatchEnvelope = assertInstanceOf(EventEnvelopeDTO.class, dispatchCaptor.getValue());
-        assertEnvelopeComun(dispatchEnvelope, "CREW_DISPATCH_ASSIGNED");
-        DispatchTicketEvent dispatchPayload = assertInstanceOf(DispatchTicketEvent.class, dispatchEnvelope.getPayload());
+        ArgumentCaptor<DispatchTicketEvent> dispatchCaptor = ArgumentCaptor.forClass(DispatchTicketEvent.class);
+        verify(publicador).publicarTicketDespacho(dispatchCaptor.capture());
+        DispatchTicketEvent dispatchPayload = dispatchCaptor.getValue();
         assertEquals(ID_ORDEN, dispatchPayload.getWorkOrderId());
         assertEquals("70", dispatchPayload.getTechnicianId());
     }
 
     @Test
-    @DisplayName("cambiarEstado(CERRADA) publica email.send y report.gen hacia cmd.direct")
-    void cambiarEstadoACerradaPublicaEmailYReportEnCmdDirect() {
+    @DisplayName("cambiarEstado(CERRADA) publica notificación y solicitud de informe vía PublicadorEventosOrden")
+    void cambiarEstadoACerradaPublicaNotificacionYInforme() {
         orden.asignarCuadrilla(new Cuadrilla("Cuadrilla Sur", 70L, Set.of(77L)));
         orden.cambiarEstado(EstadoOrden.EN_DESPLAZAMIENTO);
         orden.cambiarEstado(EstadoOrden.EN_EJECUCION);
 
         service.cambiarEstado(ID_ORDEN, new CambioEstadoRequest(EstadoOrden.CERRADA));
 
-        verify(rabbitTemplate).convertAndSend(eq("cmd.direct"), eq("email.send"), any(Object.class),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
+        verify(publicador).publicarNotificacionCliente(any(WorkOrderNotificationEvent.class));
 
-        ArgumentCaptor<Object> reportCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(rabbitTemplate).convertAndSend(eq("cmd.direct"), eq("report.gen"), reportCaptor.capture(),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
-        EventEnvelopeDTO<?> reportEnvelope = assertInstanceOf(EventEnvelopeDTO.class, reportCaptor.getValue());
-        assertEnvelopeComun(reportEnvelope, "WORK_ORDER_REPORT_REQUESTED");
-        ReportRequestEvent reportPayload = assertInstanceOf(ReportRequestEvent.class, reportEnvelope.getPayload());
+        ArgumentCaptor<ReportRequestEvent> reportCaptor = ArgumentCaptor.forClass(ReportRequestEvent.class);
+        verify(publicador).publicarSolicitudInforme(reportCaptor.capture());
+        ReportRequestEvent reportPayload = reportCaptor.getValue();
         assertEquals(ID_ORDEN, reportPayload.getWorkOrderId());
+        assertEquals("INFORME_CIERRE", reportPayload.getReportType());
     }
 }

@@ -14,21 +14,6 @@ spring:
       - optional:file:digitalfix-infrastructure/.env[.properties]
       - optional:file:../.env[.properties]
 
-  # Conexión al clúster de RabbitMQ (usada cuando digitalfix.messaging.transport=rabbitmq)
-  rabbitmq:
-    addresses: ${RABBITMQ_ADDRESSES:${RABBITMQ_HOST:localhost}:${RABBITMQ_PORT:5672}}
-    address-shuffle-mode: random
-    username: ${RABBITMQ_USERNAME:}
-    password: ${RABBITMQ_PASSWORD:}
-    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      retry:
-        enabled: true
-        initial-interval: 1000ms
-        max-attempts: 3
-
   datasource:
     # Definida en .env, ej: jdbc:oracle:thin:@<alias>_high?TNS_ADMIN=./wallet
     url: ${SPRING_DATASOURCE_URL}
@@ -60,11 +45,8 @@ server:
   port: ${PORT:${SERVER_PORT:8080}}
 
 digitalfix:
-  # Transporte de eventos de OT: "http" (ms-admin-queues, por defecto) o "rabbitmq" (productor directo).
-  messaging:
-    transport: ${DIGITALFIX_MESSAGING_TRANSPORT:http}
   # ms-admin-queues: dueño de toda la mensajería. Los eventos de la OT (correo, despacho, informe) se
-  # le entregan por HTTP (ColasEventosClient).
+  # le entregan por HTTP (ColasEventosClient); este servicio no se conecta a RabbitMQ.
   # En Docker MS_ADMIN_QUEUES_URL apunta al contenedor (http://ms-admin-queues:8084).
   ms-admin-queues:
     url: ${MS_ADMIN_QUEUES_URL:http://localhost:8084}
