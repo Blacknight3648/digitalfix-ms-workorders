@@ -5,11 +5,13 @@ import df.digitalfix_ms_workorders.dto.Cuadrilla.AsignarCuadrillaRequest;
 import df.digitalfix_ms_workorders.dto.OrdenTrabajo.OrdenTrabajoRequest;
 import df.digitalfix_ms_workorders.dto.event.DispatchTicketEvent;
 import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
+import df.digitalfix_ms_workorders.dto.event.WorkOrderKafkaEvent;
 import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
 import df.digitalfix_ms_workorders.integration.catalogo.InventarioRepuestos;
 import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEvento;
 import df.digitalfix_ms_workorders.messaging.OrdenTrabajoEventosListener;
+import df.digitalfix_ms_workorders.messaging.PublicadorEventosKafka;
 import df.digitalfix_ms_workorders.messaging.PublicadorEventosOrden;
 import df.digitalfix_ms_workorders.model.clientes.Cliente;
 import df.digitalfix_ms_workorders.model.cuadrilla.Cuadrilla;
@@ -62,6 +64,8 @@ class OrdenTrabajoServiceEventTest {
     private ApplicationEventPublisher eventos;
     @Mock
     private PublicadorEventosOrden publicador;
+    @Mock
+    private PublicadorEventosKafka publicadorKafka;
 
     @InjectMocks
     private OrdenTrabajoServiceImpl service;
@@ -72,6 +76,7 @@ class OrdenTrabajoServiceEventTest {
     @BeforeEach
     void setUp() {
         cliente = mock(Cliente.class, RETURNS_DEEP_STUBS);
+        when(cliente.getIdCliente()).thenReturn(1L);
         when(cliente.getEmail()).thenReturn("cliente@digitalfix.com");
         when(cliente.getNombreCompleto()).thenReturn("Ana Torres");
         when(cliente.getTelefono()).thenReturn("+56912345678");
@@ -92,7 +97,7 @@ class OrdenTrabajoServiceEventTest {
         when(cuadrillaRepository.findByIdConBloqueo(7L))
                 .thenReturn(Optional.of(new Cuadrilla("Cuadrilla Sur", 70L, Set.of(77L))));
 
-        OrdenTrabajoEventosListener listener = new OrdenTrabajoEventosListener(publicador);
+        OrdenTrabajoEventosListener listener = new OrdenTrabajoEventosListener(publicador, publicadorKafka);
         doAnswer(inv -> {
             Object ev = inv.getArgument(0);
             if (ev instanceof OrdenTrabajoEvento ote) {
@@ -115,10 +120,18 @@ class OrdenTrabajoServiceEventTest {
         assertEquals("cliente@digitalfix.com", payload.getClientEmail());
         assertEquals("CREADA", payload.getOrderStatus());
         verifyNoMoreInteractions(publicador);
+
+        ArgumentCaptor<WorkOrderKafkaEvent> kafkaCaptor = ArgumentCaptor.forClass(WorkOrderKafkaEvent.class);
+        verify(publicadorKafka).publicarEventoOrden(kafkaCaptor.capture());
+        assertEquals(ID_ORDEN, kafkaCaptor.getValue().getOrderId());
+        assertNull(kafkaCaptor.getValue().getPreviousStatus());
+        assertEquals("CREADA", kafkaCaptor.getValue().getNewStatus());
+        assertEquals(1L, kafkaCaptor.getValue().getClientId());
+        assertEquals("WORK_ORDER_CREATED", kafkaCaptor.getValue().getEventType());
     }
 
     @Test
-    @DisplayName("asignarCuadrilla() publica notificación y ticket de despacho vía PublicadorEventosOrden")
+    @DisplayName("asignarCuadrilla() publica notificación, ticket de despacho y evento Kafka")
     void asignarCuadrillaPublicaNotificacionYDespacho() {
         service.asignarCuadrilla(ID_ORDEN, new AsignarCuadrillaRequest(7L));
 
@@ -131,10 +144,16 @@ class OrdenTrabajoServiceEventTest {
         DispatchTicketEvent dispatchPayload = dispatchCaptor.getValue();
         assertEquals(ID_ORDEN, dispatchPayload.getWorkOrderId());
         assertEquals("70", dispatchPayload.getTechnicianId());
+
+        ArgumentCaptor<WorkOrderKafkaEvent> kafkaCaptor = ArgumentCaptor.forClass(WorkOrderKafkaEvent.class);
+        verify(publicadorKafka).publicarEventoOrden(kafkaCaptor.capture());
+        assertEquals("CREADA", kafkaCaptor.getValue().getPreviousStatus());
+        assertEquals("ASIGNADA", kafkaCaptor.getValue().getNewStatus());
+        assertEquals(70L, kafkaCaptor.getValue().getAssignedTechnicianId());
     }
 
     @Test
-    @DisplayName("cambiarEstado(CERRADA) publica notificación y solicitud de informe vía PublicadorEventosOrden")
+    @DisplayName("cambiarEstado(CERRADA) publica notificación, solicitud de informe y evento Kafka")
     void cambiarEstadoACerradaPublicaNotificacionYInforme() {
         orden.asignarCuadrilla(new Cuadrilla("Cuadrilla Sur", 70L, Set.of(77L)));
         orden.cambiarEstado(EstadoOrden.EN_DESPLAZAMIENTO);
@@ -149,5 +168,10 @@ class OrdenTrabajoServiceEventTest {
         ReportRequestEvent reportPayload = reportCaptor.getValue();
         assertEquals(ID_ORDEN, reportPayload.getWorkOrderId());
         assertEquals("INFORME_CIERRE", reportPayload.getReportType());
+
+        ArgumentCaptor<WorkOrderKafkaEvent> kafkaCaptor = ArgumentCaptor.forClass(WorkOrderKafkaEvent.class);
+        verify(publicadorKafka).publicarEventoOrden(kafkaCaptor.capture());
+        assertEquals("EN_EJECUCION", kafkaCaptor.getValue().getPreviousStatus());
+        assertEquals("CERRADA", kafkaCaptor.getValue().getNewStatus());
     }
 }

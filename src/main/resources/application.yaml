@@ -62,12 +62,21 @@ spring:
     table: flyway_schema_history_workorders
     locations: classpath:db/migration
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
 # Puerto local configurable desde .env (SERVER_PORT=8085). En Docker queda en 8080
 # y docker-compose lo publica como 8085 en el host (8081 en la EC2 de produccion).
 server:
   port: ${PORT:${SERVER_PORT:8085}}
 
+kafka:
+  topics:
+    workorders-events: ${KAFKA_TOPIC_WORKORDERS_EVENTS:workorders.events}
+
 digitalfix:
+  kafka:
+    enabled: ${KAFKA_ENABLED:true}
   # ms-admin-queues: dueño de toda la mensajería. Los eventos de la OT (correo, despacho, informe) se
   # le entregan por HTTP (ColasEventosClient); este servicio no se conecta a RabbitMQ.
   # En Docker MS_ADMIN_QUEUES_URL apunta al contenedor (http://ms-admin-queues:8084).

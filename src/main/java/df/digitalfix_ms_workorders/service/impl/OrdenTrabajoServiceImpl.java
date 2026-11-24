@@ -75,7 +75,7 @@ public class OrdenTrabajoServiceImpl implements OrdenTrabajoService {
             request.servicios().forEach(s -> agregarServicioDelCatalogo(orden, s));
         }
         OrdenTrabajo guardada = ordenTrabajoRepository.saveAndFlush(orden);
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CREADA, guardada));
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CREADA, guardada, null));
         return OrdenTrabajoResponse.from(guardada);
     }
 
@@ -111,13 +111,14 @@ public class OrdenTrabajoServiceImpl implements OrdenTrabajoService {
     @Transactional
     public OrdenTrabajoResponse cambiarEstado(Long id, CambioEstadoRequest request) {
         OrdenTrabajo orden = obtener(id);
+        EstadoOrden estadoAnterior = orden.getEstado();
         boolean stockYaDescontado = orden.stockComprometido();
         orden.cambiarEstado(request.estado());
         OrdenTrabajoResponse respuesta = guardar(orden);
         if (!stockYaDescontado && orden.stockComprometido()) {
             descontarStock(orden, orden.cantidadesPorRepuesto());
         }
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.ESTADO_CAMBIADO, orden));
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.ESTADO_CAMBIADO, orden, estadoAnterior));
         return respuesta;
     }
 
@@ -154,13 +155,14 @@ public class OrdenTrabajoServiceImpl implements OrdenTrabajoService {
         OrdenTrabajo orden = obtener(id);
         Cuadrilla cuadrilla = cuadrillaRepository.findByIdConBloqueo(request.idCuadrilla())
                 .orElseThrow(() -> noEncontrado("No existe una cuadrilla con id " + request.idCuadrilla()));
+        EstadoOrden estadoAnterior = orden.getEstado();
         boolean stockYaDescontado = orden.stockComprometido();
         orden.asignarCuadrilla(cuadrilla);
         OrdenTrabajoResponse respuesta = guardar(orden);
         if (!stockYaDescontado) {
             descontarStock(orden, orden.cantidadesPorRepuesto());
         }
-        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA, orden));
+        eventos.publishEvent(OrdenTrabajoEvento.de(OrdenTrabajoEvento.Tipo.CUADRILLA_ASIGNADA, orden, estadoAnterior));
         return respuesta;
     }
 
