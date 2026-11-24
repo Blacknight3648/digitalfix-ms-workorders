@@ -2,40 +2,52 @@ package df.digitalfix_ms_workorders.messaging;
 
 import df.digitalfix_ms_workorders.dto.event.DispatchTicketEvent;
 import df.digitalfix_ms_workorders.dto.event.ReportRequestEvent;
+import df.digitalfix_ms_workorders.dto.event.WorkOrderKafkaEvent;
 import df.digitalfix_ms_workorders.dto.event.WorkOrderNotificationEvent;
 import df.digitalfix_ms_workorders.enums.EstadoOrden;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Regla de negocio de las comunicaciones de una OT: qué se avisa y a quién en cada cambio.
  * <ul>
- *   <li>OT creada o cambio de estado → correo al cliente (flujo email).</li>
- *   <li>Cuadrilla asignada → correo + ticket de despacho (flujo dispatch).</li>
- *   <li>OT cerrada → informe de cierre en PDF (flujo report).</li>
+ *   <li>OT creada o cambio de estado → correo al cliente (flujo email) + evento en Kafka {@code workorders.events}.</li>
+ *   <li>Cuadrilla asignada → correo + ticket de despacho (flujo dispatch) + evento en Kafka {@code workorders.events}.</li>
+ *   <li>OT cerrada → informe de cierre en PDF (flujo report) + evento en Kafka {@code workorders.events}.</li>
  * </ul>
- * Cómo viajan los mensajes no es asunto de este servicio: {@link PublicadorEventosOrden} los
- * entrega a ms-admin-queues, dueño de la mensajería.
  * <p>
- * Corre después del commit: si la mensajería no responde, la orden ya quedó guardada y solo se
- * registra el error. Cada aviso se publica por separado, así una falla en el correo no impide el
- * ticket de despacho ni el informe.
+ * Corre después del commit: si la mensajería o Kafka no responden, la orden ya quedó guardada y solo
+ * se registra el error. Cada aviso se publica por separado, así una falla en un canal no impide los demás.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OrdenTrabajoEventosListener {
 
     private static final String SIN_DIRECCION = "Sin dirección registrada";
 
     private final PublicadorEventosOrden publicador;
+    private final PublicadorEventosKafka publicadorKafka;
+
+    public OrdenTrabajoEventosListener(PublicadorEventosOrden publicador) {
+        this(publicador, null);
+    }
+
+    @Autowired
+    public OrdenTrabajoEventosListener(
+            PublicadorEventosOrden publicador,
+            @Autowired(required = false) PublicadorEventosKafka publicadorKafka) {
+        this.publicador = publicador;
+        this.publicadorKafka = publicadorKafka;
+    }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void alConfirmar(OrdenTrabajoEvento evento) {
@@ -46,6 +58,9 @@ public class OrdenTrabajoEventosListener {
         if (evento.estado() == EstadoOrden.CERRADA) {
             publicarSinInterrumpir(evento, "informe de cierre", () -> publicador.publicarSolicitudInforme(informeCierre(evento)));
         }
+        if (publicadorKafka != null) {
+            publicarSinInterrumpir(evento, "evento Kafka workorders.events", () -> publicadorKafka.publicarEventoOrden(eventoKafka(evento)));
+        }
     }
 
     private void publicarSinInterrumpir(OrdenTrabajoEvento evento, String aviso, Runnable publicacion) {
@@ -55,6 +70,25 @@ public class OrdenTrabajoEventosListener {
             log.error("No se pudo publicar el {} del evento {} de la OT #{}: {}",
                     aviso, evento.tipo(), evento.idOrden(), e.getMessage());
         }
+    }
+
+    private WorkOrderKafkaEvent eventoKafka(OrdenTrabajoEvento evento) {
+        String eventType = switch (evento.tipo()) {
+            case CREADA -> "WORK_ORDER_CREATED";
+            case CUADRILLA_ASIGNADA -> "CREW_DISPATCH_ASSIGNED";
+            case ESTADO_CAMBIADO -> "WORK_ORDER_STATUS_CHANGED";
+        };
+        return WorkOrderKafkaEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType(eventType)
+                .orderId(evento.idOrden())
+                .previousStatus(evento.estadoAnterior() != null ? evento.estadoAnterior().name() : null)
+                .newStatus(evento.estado().name())
+                .assignedTechnicianId(evento.idTecnicoLider())
+                .clientId(evento.idCliente())
+                .timestamp(Instant.now().toString())
+                .traceId("TRACE-" + UUID.randomUUID().toString().substring(0, 8))
+                .build();
     }
 
     private WorkOrderNotificationEvent correo(OrdenTrabajoEvento evento) {
