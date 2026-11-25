@@ -1,12 +1,14 @@
-version: '3.8'
-
-# Compose de DESARROLLO local. Se conecta a la base Oracle Autonomous usando
-# la wallet y las credenciales del archivo ".env" (no versionados, ver README).
+# Compose de DESARROLLO local para ms-workorders.
 #
+# NOTA RECOMENDADA: Para levantar la plataforma completa o microservicios con todas
+# sus dependencias (Kafka, RabbitMQ, ms-catalog, etc.), ejecuta Docker Compose desde
+# la carpeta central:
+#
+#   cd ../digitalfix-infrastructure
+#   docker compose up -d --build ms-workorders
+#
+# Si levantas este archivo directamente:
 #   docker compose up -d --build
-#
-# Se une a la red compartida "digitalfix-net" (la crea digitalfix-ms-login)
-# para que los demas microservicios lo alcancen por nombre.
 
 networks:
   digitalfix-net:
@@ -22,24 +24,25 @@ services:
     ports:
       - "${APP_PORT:-8085}:8080"
     env_file:
-      - .env
+      - path: ../digitalfix-infrastructure/.env
+        required: false
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
     environment:
-      # TNS_ADMIN=./wallet se resuelve contra /app (WORKDIR del Dockerfile)
-      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}
-      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}
-      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}
+      - TNS_ADMIN=/app/wallet
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:-jdbc:oracle:thin:@clx44joct2djmlz9_low?TNS_ADMIN=/app/wallet}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:-ADMIN}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:-GCAm7DF1520.}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
-      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
-      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
-      # Clave compartida con el backend del Portal Cliente (/api/externo/**). Vacia = API externa cerrada.
-      - PORTAL_API_KEY=${PORTAL_API_KEY:-}
-      # ms-user en la red digitalfix-net (nombre del servicio/contenedor)
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
+      - PORTAL_API_KEY=${PORTAL_API_KEY:-8eb2a405dd3aaeb49844cef248694f7818ffcfc0aafbde82e449d845a82a68d2}
       - MS_USER_URL=${MS_USER_URL:-http://ms-user-service:8082}
       - JAVA_OPTS=-Djava.net.preferIPv4Stack=true
-      # Eventos de la OT: se entregan por HTTP a ms-admin-queues, dueño de la mensajería
       - MS_ADMIN_QUEUES_URL=${MS_ADMIN_QUEUES_URL:-http://ms-admin-queues:8084}
     volumes:
-      # La wallet se monta en tiempo de ejecucion: nunca queda dentro de la imagen
       - ./wallet:/app/wallet:ro
     networks:
       - digitalfix-net
