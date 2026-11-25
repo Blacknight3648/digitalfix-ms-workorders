@@ -11,7 +11,7 @@ name: CI/CD main
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths-ignore:
       - "**.md"
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
           cache: maven
 
       - name: Compilar y empaquetar (sin tests)
@@ -43,6 +43,7 @@ jobs:
   deploy:
     name: Desplegar en AWS
     needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
